@@ -10,7 +10,10 @@ Feitos no Blender segundo `docs/Medidas_Modelos_3D_Festival_Empire.pdf`.
 | `FBX/World` | `Plaza.fbx`, `PlotSign.fbx` | `ServerStorage/Assets` |
 | `FBX/Pyro` | `ColdSparks`, `CO2Cannon`, `Lasers`, `Flamethrower` (nomes = ids de `Config/Pyro`) | a combinar |
 | `FBX/Equipment` | colunas T1–T4, DJBooth, VinylCrate | a combinar |
-| `FBX/Garage`, `Beach`, `Arena`, `Festival`, `Orbital` | decoração | a combinar |
+| `FBX/Decor` | `Underground`, `Ascensão`, `Estrelato`, `Lenda` (só alas laterais e margens do público) | `ServerStorage/Assets/Decor` |
+| `FBX/Prestige` | `Arch.fbx` (30 × 17 × 2, com `Beam`) | `ServerStorage/Assets/Prestige` |
+| `FBX/Artists` | 25 artistas, um ficheiro por `ArtistId`, estilo boneco Roblox, com `HumanoidRootPart` | `ServerStorage/Assets/Artists` |
+| `FBX/Garage`, `Beach`, `Arena`, `Festival`, `Orbital` | adereços soltos (já usados dentro da `Decor`) | opcional |
 
 ## Cada FBX
 - Uma malha por material (`Body`, `Dark`, `Wood`…), mais `Neon_<Cor>`, `LEDScreen` e `Holo` separados. Máximo 4 804 triângulos por malha.
@@ -22,4 +25,4 @@ Feitos no Blender segundo `docs/Medidas_Modelos_3D_Festival_Empire.pdf`.
 1. Studio → Import 3D → escolher o FBX. Confirmar que o tamanho bate com a tabela do PDF (ex.: Tier_03 = 36 × 16 × 20).
 2. Pôr o modelo na pasta de destino com o nome do ficheiro.
 3. Se a frente não estiver virada para -Z (o público), rodar 180°.
-4. Correr `Models/StudioSetup.luau` no Command Bar: esconde o Root, ancora, aplica Neon e cria os Attachments.
+4. Correr `Models/StudioSetup.luau` no Command Bar: esconde Root/HumanoidRootPart, ancora, aplica Neon/Holo, cria os Attachments dos palcos e da praça (CrateStation, Leaderboard).

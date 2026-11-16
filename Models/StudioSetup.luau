@@ -10,7 +10,7 @@
 	  - Root invisível e sem colisões, definido como PrimaryPart
 	  - todas as partes ancoradas; partes "Neon_*" com material Neon
 	  - nos palcos, cria no Root os Attachments da secção 3 do PDF de medidas
-	    (só cria os que faltam; nunca apaga nada)
+	    (só cria os que faltam; nunca apaga nada); na praça cria CrateStation_1..3 e Leaderboard_1..2
 
 	Antes de correr: confirma que a frente de cada palco está virada para -Z
 	(o público). Se entrou rodado, roda o modelo 180° e só depois corre isto.
@@ -90,11 +90,79 @@ if stages then
 	end
 end
 
-for _, name in { "Plaza", "PlotSign" } do
-	local model = assets:FindFirstChild(name)
-	if model and model:IsA("Model") then
-		if prepare(model) then
-			print("[StudioSetup] " .. name .. " pronto")
+-- Praça: o GachaService procura os Attachments CrateStation_<n> no Root (Config/Map.Plaza)
+local plaza = assets:FindFirstChild("Plaza")
+if plaza and plaza:IsA("Model") then
+	local root = prepare(plaza)
+	if root then
+		local c = Vector3.new(0, 0.5, 0) -- centro do Root da praça
+		for i, angle in { 30, 150, 270 } do
+			local a = math.rad(angle)
+			addAttachment(root, "CrateStation_" .. i, Vector3.new(math.sin(a) * 55, 0.9, math.cos(a) * 55), c)
+		end
+		for i, angle in { 90, 210 } do
+			local a = math.rad(angle)
+			addAttachment(root, "Leaderboard_" .. i, Vector3.new(math.sin(a) * 80, 6.4, math.cos(a) * 80), c)
+		end
+		print("[StudioSetup] Plaza pronta")
+	end
+end
+
+local sign = assets:FindFirstChild("PlotSign")
+if sign and sign:IsA("Model") and prepare(sign) then
+	print("[StudioSetup] PlotSign pronta")
+end
+
+-- Decoração por era: ServerStorage/Assets/Decor/<Era> (Root = terreno 120 x 1 x 120)
+local decor = assets:FindFirstChild("Decor")
+if decor then
+	for _, era in { "Underground", "Ascensão", "Estrelato", "Lenda" } do
+		local model = decor:FindFirstChild(era)
+		if model and model:IsA("Model") and prepare(model) then
+			print("[StudioSetup] Decor/" .. era .. " pronta")
 		end
 	end
+end
+
+-- Arco de Prestige: ServerStorage/Assets/Prestige/Arch (Root + peça Beam para o texto)
+local prestige = assets:FindFirstChild("Prestige")
+local arch = if prestige then prestige:FindFirstChild("Arch") else nil
+if arch and arch:IsA("Model") and prepare(arch) then
+	if not arch:FindFirstChild("Beam", true) then
+		warn("[StudioSetup] Prestige/Arch: falta a peça 'Beam'")
+	end
+	print("[StudioSetup] Prestige/Arch pronto")
+end
+
+-- Artistas: ServerStorage/Assets/Artists/<ArtistId> (PrimaryPart = HumanoidRootPart)
+local artists = assets:FindFirstChild("Artists")
+if artists then
+	local count = 0
+	for _, model in artists:GetChildren() do
+		if model:IsA("Model") then
+			local hrp = model:FindFirstChild("HumanoidRootPart", true)
+			if hrp and hrp:IsA("BasePart") then
+				model.PrimaryPart = hrp
+				hrp.Transparency = 1
+				for _, d in model:GetDescendants() do
+					if d:IsA("BasePart") then
+						d.Anchored = true
+						d.CanCollide = false
+						d.CanQuery = false
+						d.CanTouch = false
+						if string.sub(d.Name, 1, 5) == "Neon_" then
+							d.Material = Enum.Material.Neon
+						elseif string.sub(d.Name, 1, 4) == "Holo" then
+							d.Material = Enum.Material.Neon
+							d.Transparency = 0.35
+						end
+					end
+				end
+				count += 1
+			else
+				warn("[StudioSetup] Artists/" .. model.Name .. ": sem 'HumanoidRootPart'")
+			end
+		end
+	end
+	print(string.format("[StudioSetup] %d artistas prontos", count))
 end
