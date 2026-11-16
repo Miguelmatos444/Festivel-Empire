@@ -1,9 +1,15 @@
 --!strict
 --[[
 	Bootstrap único do servidor.
-	Fase Init: cada módulo regista remotes/sinais (sem lógica de jogo).
-	Fase Start: arranque de loops e carregamento de jogadores.
-	O DataService arranca por último para que todos os listeners já existam.
+	Fase Init: cada módulo regista remotes/sinais (o MapService constrói o mapa).
+	Fase Start: arranque de loops e de jogadores.
+
+	Cada passo corre isolado (xpcall): um erro num módulo é mostrado no Output com
+	traceback e NÃO impede os restantes de arrancar. O núcleo da economia
+	(rede, dados, cliques, estado, Bass Drop) inicializa antes do mundo, para que um
+	erro no mapa nunca desligue os cliques nem a replicação.
+	O PlotService arranca antes do DataService para atribuir terrenos logo à entrada;
+	o DataService arranca por último para que todos os listeners já existam.
 ]]
 
 local Server = script.Parent
@@ -15,25 +21,49 @@ local EquipmentService = require(Server.Services.EquipmentService)
 local PlayerStateService = require(Server.Services.PlayerStateService)
 local PyroService = require(Server.Services.PyroService)
 local BassDropService = require(Server.Services.BassDropService)
+local MapService = require(Server.Services.MapService)
+local PlotService = require(Server.Services.PlotService)
+local StageService = require(Server.Services.StageService)
 local DebugService = require(Server.Services.DebugService)
 
 local startedAt = os.clock()
+local failures: { string } = {}
 
-ServerNet.Init()
-DataService.Init()
-EconomyService.Init()
-EquipmentService.Init()
-PlayerStateService.Init()
-PyroService.Init()
-BassDropService.Init()
-DebugService.Init()
+local function run(label: string, callback: () -> ())
+	local ok, err = xpcall(callback, debug.traceback)
+	if not ok then
+		table.insert(failures, label)
+		warn(string.format("[Server] %s FALHOU:\n%s", label, tostring(err)))
+	end
+end
 
-EconomyService.Start()
-EquipmentService.Start()
-PlayerStateService.Start()
-PyroService.Start()
-BassDropService.Start()
-DebugService.Start()
-DataService.Start()
+-- Init: núcleo primeiro, mundo depois
+run("ServerNet.Init", ServerNet.Init)
+run("DataService.Init", DataService.Init)
+run("EconomyService.Init", EconomyService.Init)
+run("EquipmentService.Init", EquipmentService.Init)
+run("PlayerStateService.Init", PlayerStateService.Init)
+run("PyroService.Init", PyroService.Init)
+run("BassDropService.Init", BassDropService.Init)
+run("DebugService.Init", DebugService.Init)
+run("MapService.Init", MapService.Init)
+run("PlotService.Init", PlotService.Init)
+run("StageService.Init", StageService.Init)
 
-print(string.format("[Server] Festival Empire Tycoon pronto (%.1f ms)", (os.clock() - startedAt) * 1000))
+-- Start
+run("MapService.Start", MapService.Start)
+run("EconomyService.Start", EconomyService.Start)
+run("EquipmentService.Start", EquipmentService.Start)
+run("PlayerStateService.Start", PlayerStateService.Start)
+run("PyroService.Start", PyroService.Start)
+run("BassDropService.Start", BassDropService.Start)
+run("StageService.Start", StageService.Start)
+run("DebugService.Start", DebugService.Start)
+run("PlotService.Start", PlotService.Start)
+run("DataService.Start", DataService.Start)
+
+if #failures == 0 then
+	print(string.format("[Server] Festival Empire Tycoon pronto (%.1f ms)", (os.clock() - startedAt) * 1000))
+else
+	warn(string.format("[Server] Arrancou com %d falha(s): %s", #failures, table.concat(failures, ", ")))
+end

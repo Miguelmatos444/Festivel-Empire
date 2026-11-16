@@ -19,6 +19,7 @@ export type Registry = {
 	BuyEquipment: RemoteDef,
 	TriggerDrop: RemoteDef,
 	BuyPyro: RemoteDef,
+	ReturnToPlot: RemoteDef,
 	StateSnapshot: RemoteDef,
 	StateDelta: RemoteDef,
 	Notify: RemoteDef,
@@ -71,6 +72,12 @@ local Defs: Registry = {
 			{ Kind = "enum", Values = PyroConfig.Ids },
 		},
 	},
+	ReturnToPlot = { -- sem argumentos; o servidor teleporta para o spawn do próprio terreno
+		Name = "ReturnToPlot",
+		Direction = "ClientToServer",
+		RateLimit = { PerSecond = 1 / 3, Burst = 1 },
+		Args = {},
+	},
 
 	-- Servidor -> Cliente ----------------------------------------------------
 	StateSnapshot = { -- payload: Types.PlayerStateSnapshot
@@ -111,6 +118,7 @@ local All: { RemoteDef } = {
 	Defs.BuyEquipment,
 	Defs.TriggerDrop,
 	Defs.BuyPyro,
+	Defs.ReturnToPlot,
 	Defs.StateSnapshot,
 	Defs.StateDelta,
 	Defs.Notify,
