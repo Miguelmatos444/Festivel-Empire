@@ -166,3 +166,42 @@ if artists then
 	end
 	print(string.format("[StudioSetup] %d artistas prontos", count))
 end
+
+-- Kits de raridade: ServerStorage/Assets/RarityKits/<RarityId> (ver PROMPT_ClaudeCode_Raridades.md)
+local kits = assets:FindFirstChild("RarityKits")
+if kits then
+	local count = 0
+	for _, kit in kits:GetChildren() do
+		if kit:IsA("Model") then
+			local origin = kit:FindFirstChild("KitOrigin", true)
+			if origin and origin:IsA("BasePart") then
+				kit.PrimaryPart = origin
+			end
+			for _, d in kit:GetDescendants() do
+				if d:IsA("BasePart") then
+					d.Anchored = true
+					d.CanCollide = false
+					d.CanQuery = false
+					d.CanTouch = false
+					local n = d.Name
+					if n == "KitOrigin" or string.find(n, "FXPoint_", 1, true) then
+						d.Transparency = 1
+					elseif string.find(n, "Pulse_", 1, true) or string.find(n, "Neon_", 1, true) then
+						d.Material = Enum.Material.Neon
+					end
+				end
+			end
+			count += 1
+		end
+	end
+	print(string.format("[StudioSetup] %d kits de raridade prontos", count))
+end
+
+-- Esconde as âncoras de cabeça dos artistas (usadas para encaixar os kits)
+if artists then
+	for _, d in artists:GetDescendants() do
+		if d:IsA("BasePart") and string.sub(d.Name, 1, 10) == "HeadAnchor" then
+			d.Transparency = 1
+		end
+	end
+end

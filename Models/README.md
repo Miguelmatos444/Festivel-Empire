@@ -13,6 +13,8 @@ Feitos no Blender segundo `docs/Medidas_Modelos_3D_Festival_Empire.pdf`.
 | `FBX/Decor` | `Underground`, `Ascensão`, `Estrelato`, `Lenda` (só alas laterais e margens do público) | `ServerStorage/Assets/Decor` |
 | `FBX/Prestige` | `Arch.fbx` (30 × 17 × 2, com `Beam`) | `ServerStorage/Assets/Prestige` |
 | `FBX/Artists` | 25 artistas, um ficheiro por `ArtistId`, estilo boneco Roblox, com `HumanoidRootPart` | `ServerStorage/Assets/Artists` |
+| `FBX/RarityKits` | 19 kits (Rare → Omega): fones, coroas, auréolas, asas com peças animáveis | `ServerStorage/Assets/RarityKits` (precisa de código, ver `PROMPT_ClaudeCode_Raridades.md`) |
+| `FBX/Artists_Proposta` | 10 artistas novos (proposta, à espera de Config) | — |
 | `FBX/Garage`, `Beach`, `Arena`, `Festival`, `Orbital` | adereços soltos (já usados dentro da `Decor`) | opcional |
 
 ## Cada FBX
