@@ -62,6 +62,103 @@ export type ProfileData = {
 	Settings: SettingsData,
 	Pyro: { [string]: boolean }, -- máquinas de pirotecnia desbloqueadas
 	LastOnline: number, -- os.time() do último save
+	-- Retenção / monetização
+	Daily: DailyData,
+	Missions: MissionsData,
+	RedeemedCodes: { [string]: boolean },
+	Badges: { [string]: boolean },
+	Receipts: { string }, -- últimos PurchaseId processados (idempotência)
+	AutoClick: boolean,
+}
+
+-- Monetização / Retenção ---------------------------------------------------------
+
+export type RewardDef = {
+	IncomeMinutes: number?, -- minutos de rendimento passivo atual (com mínimo garantido)
+	Discs: number?, -- Discos de Platina
+	Crates: number?, -- aberturas grátis da melhor crate desbloqueada
+	FillEnergy: boolean?, -- barra do Bass Drop cheia
+}
+
+export type DailyData = {
+	Streak: number, -- último dia reclamado (0..7)
+	LastClaim: number, -- os.time() da última reclamação (0 = nunca)
+}
+
+export type DailyStatus = {
+	CanClaim: boolean,
+	NextDay: number, -- dia (1..7) que a próxima reclamação dá
+	SecondsUntilClaim: number,
+	StreakLost: boolean,
+}
+
+export type MissionMetric =
+	"Clicks"
+	| "BassDrops"
+	| "PerfectDrops"
+	| "EquipmentLevels"
+	| "CratesOpened"
+	| "PlayMinutes"
+	| "Fusions"
+	| "StagesBought"
+	| "WorldTours"
+
+export type MissionDef = {
+	Id: string,
+	Name: string,
+	Description: string,
+	Metric: MissionMetric,
+	Target: number,
+	Reward: RewardDef,
+}
+
+export type MissionData = {
+	Id: string,
+	Progress: number,
+	Claimed: boolean,
+}
+
+export type MissionsData = {
+	DayIndex: number,
+	WeekIndex: number,
+	Daily: { MissionData },
+	Weekly: { MissionData },
+}
+
+export type RetentionSync = {
+	Daily: DailyData,
+	Missions: MissionsData,
+	Gamepasses: { [string]: boolean },
+	AutoClick: boolean,
+}
+
+export type CodeDef = {
+	Code: string,
+	Reward: RewardDef,
+	ExpiresAt: number?, -- os.time() UTC; nil = não expira
+	MaxUses: number?, -- limite global; nil = ilimitado
+	MinTier: number?,
+}
+
+export type GamepassDef = {
+	Key: string,
+	Name: string,
+	Description: string,
+	Id: number,
+}
+
+export type ProductDef = {
+	Key: string,
+	Name: string,
+	Description: string,
+	Id: number,
+	Reward: RewardDef,
+}
+
+export type BadgeDef = {
+	Key: string,
+	Name: string,
+	BadgeId: number,
 }
 
 -- Equipamento ----------------------------------------------------------------

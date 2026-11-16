@@ -42,6 +42,11 @@ local equippedChanged: Signal.Signal<Player> = Signal.new()
 -- Disparado quando os artistas equipados (ou as suas estrelas) mudam
 ArtistService.EquippedChanged = equippedChanged
 
+local fused: Signal.Signal<Player, number> = Signal.new()
+
+-- (jogador, nº de fusões) — missões e conquistas
+ArtistService.Fused = fused
+
 local trove = Trove.new()
 local effectsCache: { [Player]: ArtistEffects } = {}
 local vipOwners: { [Player]: boolean } = {}
@@ -307,7 +312,10 @@ function ArtistService.AutoFuse(player: Player): { [string]: boolean }
 	local consumed: { [string]: boolean } = {}
 	local data = DataService.GetProfile(player)
 	if data then
-		fuseAllRaw(data, consumed)
+		local fusions = fuseAllRaw(data, consumed)
+		if fusions > 0 then
+			fused:Fire(player, fusions)
+		end
 	end
 	return consumed
 end
@@ -336,6 +344,7 @@ function ArtistService.Fuse(player: Player, target: string): (boolean, string)
 		return false, "Nada para fundir."
 	end
 	ArtistService.Commit(player)
+	fused:Fire(player, fusions)
 	return true, string.format("%d fusão(ões) concluída(s)!", fusions)
 end
 

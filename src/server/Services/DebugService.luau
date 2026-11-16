@@ -29,6 +29,10 @@ local PlotService = require(script.Parent.PlotService)
 local StageService = require(script.Parent.StageService)
 local ArtistService = require(script.Parent.ArtistService)
 local PrestigeService = require(script.Parent.PrestigeService)
+local MonetizationService = require(script.Parent.MonetizationService)
+local RetentionService = require(script.Parent.RetentionService)
+local MonetizationConfig = require(ReplicatedStorage.Shared.Config.Monetization)
+local RetentionConfig = require(ReplicatedStorage.Shared.Config.Retention)
 local ArtistsConfig = require(ReplicatedStorage.Shared.Config.Artists)
 local RaritiesConfig = require(ReplicatedStorage.Shared.Config.Rarities)
 local MapCalc = require(ReplicatedStorage.Shared.Calc.MapCalc)
@@ -63,6 +67,10 @@ local COMMAND_ORDER = {
 	"tour",
 	"discs",
 	"skills",
+	"daily",
+	"missions",
+	"product",
+	"gamepass",
 	"plots",
 	"home",
 	"state",
@@ -464,6 +472,92 @@ commands.skills = {
 			return "Uso: /fe skills reset"
 		end
 		return "Árvore limpa: +" .. PrestigeService.ResetTree(player) .. " Discos devolvidos."
+	end,
+}
+
+commands.daily = {
+	Usage = "daily reset|skip|break",
+	Description = "Diário: recomeça, avança 20 h, ou simula 49 h sem jogar",
+	Run = function(player: Player, args: { string }): string
+		local data = DataService.GetProfile(player)
+		if not data then
+			return "Perfil não carregado."
+		end
+		local mode = args[1]
+		if mode == "reset" then
+			data.Daily.Streak = 0
+			data.Daily.LastClaim = 0
+		elseif mode == "skip" and data.Daily.LastClaim > 0 then
+			data.Daily.LastClaim -= RetentionConfig.ClaimCooldown
+		elseif mode == "break" and data.Daily.LastClaim > 0 then
+			data.Daily.LastClaim = os.time() - RetentionConfig.StreakWindow - 3600
+		else
+			return "Uso: /fe daily reset|skip|break  (skip/break precisam de uma reclamação anterior)"
+		end
+		RetentionService.MarkDirty(player)
+		return string.format("Diário: sequência %d, última há %ds", data.Daily.Streak, os.time() - data.Daily.LastClaim)
+	end,
+}
+
+commands.missions = {
+	Usage = "missions complete|reroll",
+	Description = "Completa todas as missões ou sorteia de novo",
+	Run = function(player: Player, args: { string }): string
+		local data = DataService.GetProfile(player)
+		if not data then
+			return "Perfil não carregado."
+		end
+		if args[1] == "complete" then
+			for _, list in { data.Missions.Daily, data.Missions.Weekly } do
+				for _, mission in list do
+					local def = RetentionConfig.MissionById[mission.Id]
+					if def then
+						mission.Progress = def.Target
+					end
+				end
+			end
+		elseif args[1] == "reroll" then
+			data.Missions.DayIndex = -1
+			data.Missions.WeekIndex = -1
+			RetentionService.RefreshMissions(player) -- força o novo sorteio
+		else
+			return "Uso: /fe missions complete|reroll"
+		end
+		RetentionService.MarkDirty(player)
+		return "Missões atualizadas."
+	end,
+}
+
+commands.product = {
+	Usage = "product <key>",
+	Description = "Entrega um Developer Product sem compra",
+	Run = function(player: Player, args: { string }): string
+		local keys: { string } = {}
+		for _, def in MonetizationConfig.Products do
+			table.insert(keys, def.Key)
+		end
+		local result = MonetizationService.DebugGrantProduct(player, args[1] or "")
+		if not result then
+			return "Uso: /fe product <" .. table.concat(keys, "|") .. ">"
+		end
+		return "Produto entregue: " .. result
+	end,
+}
+
+commands.gamepass = {
+	Usage = "gamepass <key> on|off",
+	Description = "Simula a posse de um Gamepass nesta sessão",
+	Run = function(player: Player, args: { string }): string
+		local key = args[1] or ""
+		if not MonetizationConfig.GamepassByKey[key] or (args[2] ~= "on" and args[2] ~= "off") then
+			local keys: { string } = {}
+			for _, def in MonetizationConfig.Gamepasses do
+				table.insert(keys, def.Key)
+			end
+			return "Uso: /fe gamepass <" .. table.concat(keys, "|") .. "> on|off"
+		end
+		MonetizationService.DebugSetOwned(player, key, args[2] == "on")
+		return key .. ": " .. args[2]
 	end,
 }
 

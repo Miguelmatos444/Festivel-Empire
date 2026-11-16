@@ -34,6 +34,10 @@ export type Registry = {
 	SetAutoDelete: RemoteDef,
 	BuySkillNode: RemoteDef,
 	DoWorldTour: RemoteDef,
+	ClaimDaily: RemoteDef,
+	ClaimMission: RemoteDef,
+	RedeemCode: RemoteDef,
+	SetAutoClick: RemoteDef,
 	StateSnapshot: RemoteDef,
 	StateDelta: RemoteDef,
 	Notify: RemoteDef,
@@ -42,6 +46,7 @@ export type Registry = {
 	DropResolved: RemoteDef,
 	ArtistsSync: RemoteDef,
 	CrateResult: RemoteDef,
+	RetentionSync: RemoteDef,
 }
 
 local UID_ARG: Types.ArgSpec = { Kind = "string", MaxLength = 12, Pattern = "^%d+$" }
@@ -167,6 +172,30 @@ local Defs: Registry = {
 		RateLimit = { PerSecond = 0.2, Burst = 1 },
 		Args = {},
 	},
+	ClaimDaily = { -- sem argumentos
+		Name = "ClaimDaily",
+		Direction = "ClientToServer",
+		RateLimit = { PerSecond = 0.5, Burst = 2 },
+		Args = {},
+	},
+	ClaimMission = { -- (slot: "D1".."D3" | "W1".."W2")
+		Name = "ClaimMission",
+		Direction = "ClientToServer",
+		RateLimit = { PerSecond = 2, Burst = 5 },
+		Args = { { Kind = "string", MaxLength = 3, Pattern = "^[DW]%d$" } },
+	},
+	RedeemCode = { -- (código: letras e números)
+		Name = "RedeemCode",
+		Direction = "ClientToServer",
+		RateLimit = { PerSecond = 1, Burst = 1 },
+		Args = { { Kind = "string", MaxLength = 24, Pattern = "^%w+$" } },
+	},
+	SetAutoClick = { -- (ligado)
+		Name = "SetAutoClick",
+		Direction = "ClientToServer",
+		RateLimit = { PerSecond = 2, Burst = 4 },
+		Args = { { Kind = "boolean" } },
+	},
 
 	-- Servidor -> Cliente ----------------------------------------------------
 	StateSnapshot = { -- payload: Types.PlayerStateSnapshot
@@ -209,6 +238,11 @@ local Defs: Registry = {
 		Direction = "ServerToClient",
 		Args = {},
 	},
+	RetentionSync = { -- payload: Types.RetentionSync
+		Name = "RetentionSync",
+		Direction = "ServerToClient",
+		Args = {},
+	},
 }
 
 local All: { RemoteDef } = {
@@ -229,6 +263,10 @@ local All: { RemoteDef } = {
 	Defs.SetAutoDelete,
 	Defs.BuySkillNode,
 	Defs.DoWorldTour,
+	Defs.ClaimDaily,
+	Defs.ClaimMission,
+	Defs.RedeemCode,
+	Defs.SetAutoClick,
 	Defs.StateSnapshot,
 	Defs.StateDelta,
 	Defs.Notify,
@@ -237,6 +275,7 @@ local All: { RemoteDef } = {
 	Defs.DropResolved,
 	Defs.ArtistsSync,
 	Defs.CrateResult,
+	Defs.RetentionSync,
 }
 
 return table.freeze({

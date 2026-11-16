@@ -51,9 +51,12 @@ local function getContainer(): Frame
 end
 
 -- Move o botão (holder com o seu UIScale) para a coluna, na posição `order`
+local BUTTON_SIZE = UDim2.fromOffset(112, 88) -- 6 botões cabem num ecrã de telemóvel
+
 function SideMenu.Attach(holder: GuiObject, order: number)
 	holder.AnchorPoint = Vector2.zero
 	holder.Position = UDim2.new()
+	holder.Size = BUTTON_SIZE
 	holder.LayoutOrder = order
 	holder.Parent = getContainer()
 end

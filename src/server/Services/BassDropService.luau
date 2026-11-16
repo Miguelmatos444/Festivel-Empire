@@ -25,6 +25,7 @@ local BassDropConfig = require(ReplicatedStorage.Shared.Config.BassDrop)
 local PyroConfig = require(ReplicatedStorage.Shared.Config.Pyro)
 local RemoteDefs = require(ReplicatedStorage.Shared.Net.RemoteDefs)
 local Trove = require(ReplicatedStorage.Shared.Util.Trove)
+local Signal = require(ReplicatedStorage.Shared.Util.Signal)
 local DropCalc = require(ReplicatedStorage.Shared.Calc.DropCalc)
 local PrestigeCalc = require(ReplicatedStorage.Shared.Calc.PrestigeCalc)
 local ArtistsConfig = require(ReplicatedStorage.Shared.Config.Artists)
@@ -56,8 +57,14 @@ type Session = {
 
 local BassDropService = {}
 
+local dropSucceeded: Signal.Signal<Player, Types.DropGrade> = Signal.new()
+
+-- (jogador, nota) — cada drop bem-sucedido (missões e conquistas)
+BassDropService.DropSucceeded = dropSucceeded
+
 local trove = Trove.new()
 local sessions: { [Player]: Session } = {}
+local pendingFills: { [Player]: boolean } = {} -- "Energia Cheia" comprada fora da fase de carga
 local saveDropReady: { [Player]: { [string]: number } } = {} -- uid do artista -> os.clock() em que fica pronto
 
 local function serverNow(): number
@@ -213,6 +220,7 @@ local function resolveDrop(
 		SavedBy = savedBy,
 	}
 	ServerNet.FireAllClients(RemoteDefs.Defs.DropResolved, result)
+	dropSucceeded:Fire(player, grade.Grade)
 end
 
 -- Salva-Drop: o primeiro artista pronto (melhor nota primeiro) faz o drop pelo jogador
@@ -253,6 +261,10 @@ startCharging = function(player: Player, session: Session, energy: number)
 	session.Triggered = false
 	EconomyService.SetBoost(player, 1, 0)
 	sendState(player, session)
+	if pendingFills[player] then
+		pendingFills[player] = nil
+		task.defer(BassDropService.FillEnergy, player)
+	end
 end
 
 local function onWindowClosed(player: Player, session: Session)
@@ -397,6 +409,16 @@ function BassDropService.ForceDrop(player: Player): boolean
 	return BassDropService.SetEnergy(player, BassDropConfig.MaxEnergy)
 end
 
+-- "Energia Cheia" (produto / recompensa): enche já se estiver a carregar; senão, na próxima carga
+function BassDropService.FillEnergy(player: Player)
+	local session = sessions[player]
+	if session and session.Phase == "Charging" then
+		addEnergy(player, BassDropConfig.MaxEnergy)
+	else
+		pendingFills[player] = true
+	end
+end
+
 -- World Tour: nova sessão (cancela build-up/janela/boost em curso) e recarga do Salva-Drop
 function BassDropService.ResetSession(player: Player)
 	local session = newSession()
@@ -420,8 +442,8 @@ function BassDropService.Init()
 		startCharging(player, session, 0)
 	end))
 
-	trove:Add(EconomyService.Clicked:Connect(function(player: Player)
-		addEnergy(player, BassDropConfig.EnergyPerClick * energyMultiplier(player))
+	trove:Add(EconomyService.Clicked:Connect(function(player: Player, count: number)
+		addEnergy(player, BassDropConfig.EnergyPerClick * count * energyMultiplier(player))
 	end))
 
 	trove:Add(PyroService.Changed:Connect(function(player: Player)
@@ -441,6 +463,7 @@ function BassDropService.Init()
 	trove:Connect(Players.PlayerRemoving, function(player: Player)
 		sessions[player] = nil
 		saveDropReady[player] = nil
+		pendingFills[player] = nil
 	end)
 end
 
