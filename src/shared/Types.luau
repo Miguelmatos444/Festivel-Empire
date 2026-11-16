@@ -140,6 +140,20 @@ export type DropResolved = {
 	ServerTime: number,
 }
 
+-- Mapa / Palcos ----------------------------------------------------------------
+
+export type EraName = "Underground" | "Ascensão" | "Estrelato" | "Lenda"
+
+export type StageDef = {
+	Tier: number,
+	Name: string,
+	Era: EraName,
+	Width: number, -- X (studs)
+	Depth: number, -- Z, cresce para trás a partir da frente do palco
+	Height: number, -- Y
+	RequiredWorldTours: number,
+}
+
 -- Replicação servidor -> cliente ------------------------------------------
 
 export type PlayerStateSnapshot = {
