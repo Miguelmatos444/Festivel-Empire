@@ -1,8 +1,8 @@
 --!strict
 --[[
 	RetentionController
-	Cópia local (só de leitura) do diário, missões, Gamepasses e Auto-Batida,
-	mais os pedidos ao servidor (reclamar, códigos, Auto-Batida) e as compras Robux
+	Cópia local (só de leitura) do diário, missões, Gamepasses e Auto-Play,
+	mais os pedidos ao servidor (reclamar, códigos, Auto-Play) e as compras Robux
 	(o servidor entrega via ProcessReceipt / PromptGamePassPurchaseFinished).
 ]]
 

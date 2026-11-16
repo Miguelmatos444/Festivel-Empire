@@ -33,6 +33,9 @@ export type StatsData = {
 	Clicks: number,
 	PlayTime: number, -- segundos
 	BassDrops: number,
+	ArrowHits: number, -- acertos no minijogo de setas (manuais + Auto-Play)
+	ArrowPerfects: number,
+	BestCombo: number,
 }
 
 export type SettingsData = {
@@ -69,6 +72,7 @@ export type ProfileData = {
 	Badges: { [string]: boolean },
 	Receipts: { string }, -- últimos PurchaseId processados (idempotência)
 	AutoClick: boolean,
+	LuckUntil: number, -- os.time() até ao qual a Poção da Sorte está ativa (0 = nunca)
 	-- Social
 	Social: SocialData,
 }
@@ -105,6 +109,8 @@ export type RewardDef = {
 	Discs: number?, -- Discos de Platina
 	Crates: number?, -- aberturas grátis da melhor crate desbloqueada
 	FillEnergy: boolean?, -- barra do Bass Drop cheia
+	PaidCrate: { Kind: string, Count: number }?, -- caixa paga (Config/PaidCrates), sem custo de Hype
+	LuckMinutes: number?, -- minutos de Poção da Sorte (somam ao tempo restante)
 }
 
 export type DailyData = {
@@ -120,7 +126,8 @@ export type DailyStatus = {
 }
 
 export type MissionMetric =
-	"Clicks"
+	"ArrowHits"
+	| "ArrowCombo"
 	| "BassDrops"
 	| "PerfectDrops"
 	| "EquipmentLevels"
@@ -180,6 +187,7 @@ export type ProductDef = {
 	Description: string,
 	Id: number,
 	Reward: RewardDef,
+	Random: boolean?, -- item aleatório pago: mostra probabilidades e respeita PolicyService
 }
 
 export type BadgeDef = {
@@ -191,14 +199,14 @@ export type BadgeDef = {
 -- Equipamento ----------------------------------------------------------------
 
 export type EquipmentKind = "Generator" | "Click"
-export type EquipmentCategory = "Colunas" | "Mesas" | "DJs" | "Batidas"
+export type EquipmentCategory = "Colunas" | "Mesas" | "DJs" | "Palco"
 
 export type EquipmentDef = {
 	Id: string,
 	Name: string,
 	Description: string,
 	Category: EquipmentCategory,
-	Kind: EquipmentKind, -- Generator: Hype/s | Click: Hype por batida
+	Kind: EquipmentKind, -- Generator: Hype/s | Click: Hype base por acerto no palco
 	BaseCost: number,
 	GrowthRate: number, -- entre Economy.GrowthRate.Min e Max
 	BaseOutput: number, -- produção por nível (antes de marcos)
@@ -229,6 +237,50 @@ export type GradeDef = {
 	MaxOffset: number, -- distância máxima (s) ao instante do drop
 	Factor: number, -- fator aplicado ao multiplicador
 }
+
+-- Minijogo de setas (Fase 9) ---------------------------------------------------
+
+export type ArrowDirection = "Up" | "Down" | "Left" | "Right"
+export type ArrowGrade = "Perfect" | "Good"
+
+export type ArrowTierDef = {
+	Tier: number,
+	SpawnInterval: number, -- segundos entre bolinhas novas
+	Lifetime: number, -- segundos até a bolinha desaparecer
+	MaxActive: number, -- bolinhas em simultâneo no ecrã
+	HitValue: number, -- × Hype base por acerto (Microfone de Palco + bónus)
+}
+
+export type ArrowGradeDef = {
+	Grade: ArrowGrade,
+	Label: string,
+	MaxProgress: number, -- fração do tempo de vida já passada (0..1) até onde esta nota vale
+	Factor: number, -- × Hype do acerto
+	EnergyPerInterval: number, -- energia do drop = valor × SpawnInterval do tier
+}
+
+export type ArrowSpawn = {
+	Id: number,
+	Dir: ArrowDirection,
+	SpawnAt: number, -- Workspace:GetServerTimeNow()
+	Lifetime: number,
+}
+
+export type ArrowEvent =
+	{ Kind: "Start", Tier: number }
+	| { Kind: "Stop" }
+	| { Kind: "Pause" } -- build-up/janela do Bass Drop: setas limpas até ao fim
+	| { Kind: "Spawn", Arrows: { ArrowSpawn } }
+	| {
+		Kind: "Hit",
+		Id: number,
+		Grade: ArrowGrade,
+		Combo: number,
+		ComboMultiplier: number,
+		Gain: BigNumData,
+		Auto: boolean,
+	}
+	| { Kind: "Miss", Id: number, Reason: "Expired" | "Wrong" }
 
 export type PyroDef = {
 	Id: string,
@@ -417,6 +469,7 @@ export type PlayerStateSnapshot = {
 	WorldTours: number,
 	StageTier: number,
 	Clicks: number,
+	LuckUntil: number,
 	Equipment: { [string]: number },
 	SkillTree: { [string]: number },
 }
@@ -431,6 +484,7 @@ export type StateDelta = {
 	WorldTours: number?,
 	StageTier: number?,
 	Clicks: number?,
+	LuckUntil: number?,
 	Equipment: { [string]: number }?, -- apenas as entradas alteradas
 	SkillTree: { [string]: number }?, -- árvore completa quando muda
 }

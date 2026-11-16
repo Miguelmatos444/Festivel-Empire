@@ -55,7 +55,8 @@ end
 
 -- Uma abertura: atualiza a escada de pity e devolve a raridade sorteada
 -- legendaryReduction: "Sorte de Estreia" adianta o primeiro patamar (Lendário+)
-local function rollWithPity(data: ProfileData, legendaryReduction: number): RarityDef
+-- luck/minRarityIndex: sorte e garantia (caixas pagas, Poção); o pity continua a contar igual
+local function rollWithPity(data: ProfileData, legendaryReduction: number, luck: ArtistCalc.LuckSpec?, minRarityIndex: number?): RarityDef
 	local counters = (data.Pity :: unknown) :: { [string]: number }
 	local ladder = RaritiesConfig.PityLadder
 
@@ -63,7 +64,7 @@ local function rollWithPity(data: ProfileData, legendaryReduction: number): Rari
 		counters[level.Key] = (counters[level.Key] or 0) + 1
 	end
 
-	local minIndex = 1
+	local minIndex = minRarityIndex or 1
 	for index, level in ladder do
 		local threshold = if index == 1 then math.max(1, level.Threshold - legendaryReduction) else level.Threshold
 		if counters[level.Key] >= threshold then
@@ -71,7 +72,7 @@ local function rollWithPity(data: ProfileData, legendaryReduction: number): Rari
 		end
 	end
 
-	local rarity = ArtistCalc.RollRarity(rng, minIndex)
+	local rarity = ArtistCalc.RollRarity(rng, minIndex, luck)
 	local rolledIndex = RaritiesConfig.IndexById[rarity.Id]
 	for _, level in ladder do
 		if rolledIndex >= RaritiesConfig.IndexById[level.MinRarity] then
@@ -114,17 +115,25 @@ function GachaService.Open(player: Player, crateId: string, count: number): (boo
 	return true, nil
 end
 
--- Abre `count` crates já validadas/pagas: pity, sorteio, Auto-Delete/Fuse, resultado e sinais
-function GachaService.Pull(player: Player, crate: Types.CrateDef, count: number)
+export type PullOptions = {
+	Luck: ArtistCalc.LuckSpec?,
+	MinIndex: number?,
+}
+
+-- Abre `count` crates já validadas/pagas: pity, sorteio, Auto-Delete/Fuse, resultado e sinais.
+-- Sem `options`, aplica a Poção da Sorte se estiver ativa.
+function GachaService.Pull(player: Player, crate: Types.CrateDef, count: number, options: PullOptions?)
 	local data = DataService.GetProfile(player)
 	if not data or count <= 0 then
 		return
 	end
 	local skills = PrestigeCalc.GetSkillEffects(data.SkillTree)
+	local luck = if options then options.Luck else ArtistCalc.GetPotionLuck(data.LuckUntil, os.time())
+	local minRarityIndex = if options then options.MinIndex else nil
 	local items: { CrateItem } = {}
 	local announceIndex = RaritiesConfig.IndexById[ANNOUNCE_FROM_RARITY]
 	for _ = 1, count do
-		local rarity = rollWithPity(data, skills.PityReduction)
+		local rarity = rollWithPity(data, skills.PityReduction, luck, minRarityIndex)
 		local artist = ArtistsConfig.ByCrateFamily[crate.Id .. "|" .. rarity.Family]
 		local item: CrateItem
 		if ArtistService.IsAutoDeleted(player, rarity.Id) then
@@ -185,6 +194,19 @@ function GachaService.OpenFree(player: Player, count: number): number
 	end
 	GachaService.Pull(player, crate, amount)
 	return amount
+end
+
+-- Caixas pagas com Robux (Config/PaidCrates): melhor crate desbloqueada, sem custo de Hype.
+-- Não respeitam o limite da coleção (uma compra nunca se perde); a coleção pode passar
+-- temporariamente do limite e as crates com Hype ficam bloqueadas até libertar espaço.
+function GachaService.OpenPaid(player: Player, kind: string, count: number): number
+	local crate = GachaService.GetBestCrate(player)
+	if not crate or count <= 0 then
+		return 0
+	end
+	local minIndex, luck = ArtistCalc.GetPaidCrateRoll(kind)
+	GachaService.Pull(player, crate, count, { Luck = luck, MinIndex = minIndex })
+	return count
 end
 
 -- Prompts nas estações da praça (abrem o painel no cliente)

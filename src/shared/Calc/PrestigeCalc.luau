@@ -97,7 +97,7 @@ function PrestigeCalc.DescribeEffect(def: SkillNodeDef, level: number): string
 	if effect == "HypeMultiplier" then
 		return "+" .. percent(value) .. " Hype global"
 	elseif effect == "ClickMultiplier" then
-		return "+" .. percent(value) .. " Hype por batida"
+		return "+" .. percent(value) .. " Hype por acerto no palco"
 	elseif effect == "OfflineEfficiency" then
 		return "+" .. percent(value) .. " eficiência offline"
 	elseif effect == "ArtistBonus" then

@@ -32,6 +32,7 @@ local PrestigeService = require(script.Parent.PrestigeService)
 local MonetizationService = require(script.Parent.MonetizationService)
 local RetentionService = require(script.Parent.RetentionService)
 local SocialService = require(script.Parent.SocialService)
+local ArrowGameService = require(script.Parent.ArrowGameService)
 local MonetizationConfig = require(ReplicatedStorage.Shared.Config.Monetization)
 local RetentionConfig = require(ReplicatedStorage.Shared.Config.Retention)
 local ArtistsConfig = require(ReplicatedStorage.Shared.Config.Artists)
@@ -61,6 +62,7 @@ local COMMAND_ORDER = {
 	"drop",
 	"pyro",
 	"cd",
+	"arrows",
 	"stage",
 	"wt",
 	"artist",
@@ -252,7 +254,7 @@ commands.equip = {
 			local lines = { "Equipamento:" }
 			for _, def in EquipmentConfig.List do
 				local level = EquipmentCalc.GetLevel(data.Equipment, def.Id)
-				local unit = if def.Kind == "Click" then "/batida" else "/s"
+				local unit = if def.Kind == "Click" then "/acerto" else "/s"
 				table.insert(
 					lines,
 					string.format(
@@ -282,7 +284,7 @@ commands.equip = {
 			return "Nível inválido (inteiro >= 0)."
 		end
 		return string.format(
-			"%s -> Nv. %d | Hype/s %s | Hype/batida %s",
+			"%s -> Nv. %d | Hype/s %s | Hype base/acerto %s",
 			id,
 			level,
 			NumberFormatter.format(EconomyService.GetHypePerSecond(player)),
@@ -337,6 +339,57 @@ commands.cd = {
 		end
 		PyroService.ResetCooldowns(player)
 		return "Cooldowns limpos."
+	end,
+}
+
+commands.arrows = {
+	Usage = "arrows diff <1-12>|off · arrows stats|reset · arrows auto on|off",
+	Description = "Minijogo de setas: dificuldade, estatísticas e Auto-Play de teste",
+	Run = function(player: Player, args: { string }): string
+		local sub = args[1] or "stats"
+		if sub == "diff" then
+			if args[2] == "off" then
+				ArrowGameService.SetDebugTier(player, nil)
+				return "Dificuldade das setas = tier do palco."
+			end
+			local tier = tonumber(args[2] or "")
+			if not tier then
+				return "Uso: /fe arrows diff <1-12>|off"
+			end
+			ArrowGameService.SetDebugTier(player, tier)
+			return string.format("Setas com a dificuldade do tier %d (só esta sessão).", math.clamp(math.floor(tier), 1, 12))
+		elseif sub == "auto" then
+			if args[2] ~= "on" and args[2] ~= "off" then
+				return "Uso: /fe arrows auto on|off"
+			end
+			ArrowGameService.SetDebugAuto(player, args[2] == "on")
+			return "Auto-Play de teste: " .. args[2]
+		elseif sub == "reset" then
+			ArrowGameService.ResetStats(player)
+			return "Estatísticas das setas reiniciadas."
+		elseif sub == "stats" then
+			local stats = ArrowGameService.GetStats(player)
+			local data = DataService.GetProfile(player)
+			local resolved = stats.Hits + stats.Misses
+			local accuracy = if resolved > 0 then stats.Hits / resolved * 100 else 0
+			local perSecond = if stats.Seconds > 0 then stats.Hits / stats.Seconds else 0
+			return string.format(
+				"%s | tier %d | combo %d | acertos %d (%d perfeitos) | falhas %d | auto %d | precisão %.0f%% | %.2f acertos/s | pendentes %d | recorde %d | total %s",
+				if stats.Active then (if stats.Paused then "PAUSA (drop)" else "ATIVO") else "fora do palco",
+				stats.Tier,
+				stats.Combo,
+				stats.Hits,
+				stats.Perfects,
+				stats.Misses,
+				stats.AutoHits,
+				accuracy,
+				perSecond,
+				stats.Pending,
+				if data then data.Stats.BestCombo else 0,
+				if data then NumberFormatter.formatInteger(data.Stats.ArrowHits) else "0"
+			)
+		end
+		return "Uso: /fe " .. commands.arrows.Usage
 	end,
 }
 

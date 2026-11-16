@@ -9,7 +9,8 @@
 	  - Evento global Headliner: horário fixo em UTC (igual em todos os servidores),
 	    Hype ×2 e energia ×1.5. Overrides de debug em atributos de ReplicatedStorage.
 	O multiplicador total entra no EconomyService como fonte "Social".
-	Atributos públicos do jogador (lista de festivais): FE_StageTier, FE_WorldTours, FE_Likes.
+	Atributos públicos do jogador: FE_StageTier, FE_WorldTours, FE_Likes (lista de festivais) e
+	FE_CrowdLevel (tamanho do público, CrowdCalc).
 ]]
 
 local Players = game:GetService("Players")
@@ -23,6 +24,7 @@ local Signal = require(ReplicatedStorage.Shared.Util.Signal)
 local Trove = require(ReplicatedStorage.Shared.Util.Trove)
 local Diag = require(ReplicatedStorage.Shared.Util.Diag)
 local SocialCalc = require(ReplicatedStorage.Shared.Calc.SocialCalc)
+local CrowdCalc = require(ReplicatedStorage.Shared.Calc.CrowdCalc)
 local RetentionCalc = require(ReplicatedStorage.Shared.Calc.RetentionCalc)
 local ServerNet = require(script.Parent.Parent.Net.ServerNet)
 local DataService = require(script.Parent.DataService)
@@ -192,6 +194,7 @@ local function refreshPublic(player: Player)
 	player:SetAttribute("FE_StageTier", data.StageTier)
 	player:SetAttribute("FE_WorldTours", data.WorldTours)
 	player:SetAttribute("FE_Likes", data.Social.LikesReceived)
+	player:SetAttribute("FE_CrowdLevel", CrowdCalc.GetLevel(data.RunHypeEarned))
 end
 
 function SocialService.GiveLike(player: Player, index: number): (boolean, string)

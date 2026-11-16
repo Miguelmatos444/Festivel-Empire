@@ -91,7 +91,7 @@ end
 
 -- Produção -----------------------------------------------------------------
 
--- Produção total de um equipamento no nível indicado (Hype/s ou Hype/batida)
+-- Produção total de um equipamento no nível indicado (Hype/s ou Hype base por acerto)
 function EquipmentCalc.GetOutput(def: EquipmentDef, level: number): BigNum
 	if level <= 0 then
 		return BigNum.ZERO

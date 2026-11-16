@@ -62,14 +62,16 @@ function ReturnView.Mount()
 	label.Position = UDim2.fromScale(0.5, 0.5)
 	label.Size = UDim2.new(1, -14, 1, -14)
 	label.TextWrapped = true
-	label.Text = "VOLTAR AO MEU FESTIVAL"
+	label.Text = "VOLTAR"
 	Components.addStroke(label, Theme.Colors.Background, 1.5)
 	label.Parent = button
 
 	trove:Connect(button.Activated, function()
 		if PlotController.RequestReturn() then
 			button.BackgroundColor3 = Theme.Colors.Gold
-			TweenService:Create(button, Theme.Tween.Ring, { BackgroundColor3 = Theme.Colors.Panel }):Play()
+			local base = button:GetAttribute("BaseColor")
+			local target = if typeof(base) == "Color3" then base else Theme.Colors.Panel
+			TweenService:Create(button, Theme.Tween.Ring, { BackgroundColor3 = target }):Play()
 		end
 	end)
 

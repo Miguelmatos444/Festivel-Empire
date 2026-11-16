@@ -10,6 +10,7 @@
 local Types = require(script.Parent.Parent.Types)
 local ArtistsConfig = require(script.Parent.Parent.Config.Artists)
 local RaritiesConfig = require(script.Parent.Parent.Config.Rarities)
+local PaidCratesConfig = require(script.Parent.Parent.Config.PaidCrates)
 local PyroConfig = require(script.Parent.Parent.Config.Pyro)
 
 type ArtistData = Types.ArtistData
@@ -119,7 +120,7 @@ function ArtistCalc.DescribeAbility(ability: AbilityDef): string
 	local value = ability.Value or 0
 	local kind = ability.Kind
 	if kind == "ClickPower" then
-		return "Batida Forte: +" .. percent(value) .. " Hype por batida"
+		return "Batida Forte: +" .. percent(value) .. " Hype por acerto no palco"
 	elseif kind == "Energy" then
 		return "Carga: +" .. percent(value) .. " energia do Bass Drop"
 	elseif kind == "WindowWiden" then
@@ -255,21 +256,88 @@ end
 -- Sorteio --------------------------------------------------------------------
 
 -- Sorteia uma raridade com índice >= minIndex, com os pesos exatos da Config
-function ArtistCalc.RollRarity(rng: Random, minIndex: number): RarityDef
+-- Sorte: multiplica o peso das raridades com índice >= FromIndex (as probabilidades são renormalizadas)
+export type LuckSpec = {
+	Multiplier: number,
+	FromIndex: number,
+}
+
+local function rarityWeight(index: number, luck: LuckSpec?): number
+	local weight = RaritiesConfig.List[index].Weight
+	if luck and index >= luck.FromIndex then
+		weight *= luck.Multiplier
+	end
+	return weight
+end
+
+-- Sorteia uma raridade a partir de minIndex (pity / garantia), com sorte opcional
+function ArtistCalc.RollRarity(rng: Random, minIndex: number, luck: LuckSpec?): RarityDef
 	local list = RaritiesConfig.List
 	local first = math.clamp(minIndex, 1, #list)
 	local total = 0
 	for index = first, #list do
-		total += list[index].Weight
+		total += rarityWeight(index, luck)
 	end
 	local roll = rng:NextNumber() * total
 	for index = first, #list do
-		roll -= list[index].Weight
+		roll -= rarityWeight(index, luck)
 		if roll < 0 then
 			return list[index]
 		end
 	end
 	return list[#list]
+end
+
+export type RarityOdds = {
+	Rarity: RarityDef,
+	Chance: number, -- 0..1
+}
+
+-- Probabilidade exata de cada raridade (o mesmo cálculo do sorteio), sem contar com o pity
+function ArtistCalc.GetOdds(minIndex: number, luck: LuckSpec?): { RarityOdds }
+	local list = RaritiesConfig.List
+	local first = math.clamp(minIndex, 1, #list)
+	local total = 0
+	for index = first, #list do
+		total += rarityWeight(index, luck)
+	end
+	local odds: { RarityOdds } = {}
+	for index = first, #list do
+		table.insert(odds, { Rarity = list[index], Chance = rarityWeight(index, luck) / total })
+	end
+	return odds
+end
+
+-- Garantia mínima e sorte de uma caixa paga (Config/PaidCrates); nil se o tipo não existir
+function ArtistCalc.GetPaidCrateRoll(kind: string): (number, LuckSpec?)
+	local def = (PaidCratesConfig.Kinds :: { [string]: PaidCratesConfig.PaidCrateDef })[kind]
+	if not def then
+		return 1, nil
+	end
+	local minIndex = if def.MinRarity then RaritiesConfig.IndexById[def.MinRarity] or 1 else 1
+	local luck: LuckSpec? = if def.Luck > 1
+		then { Multiplier = def.Luck, FromIndex = RaritiesConfig.IndexById[def.LuckFrom] or 1 }
+		else nil
+	return minIndex, luck
+end
+
+-- Sorte da Poção nas crates normais enquanto `now` (os.time) < luckUntil
+function ArtistCalc.GetPotionLuck(luckUntil: number, now: number): LuckSpec?
+	if luckUntil <= now then
+		return nil
+	end
+	local potion = PaidCratesConfig.LuckPotion
+	return { Multiplier = potion.Multiplier, FromIndex = RaritiesConfig.IndexById[potion.LuckFrom] or 1 }
+end
+
+-- Soma das probabilidades por família (Common, Rare, Epic, Legendary, Mythic)
+function ArtistCalc.GetFamilyOdds(odds: { RarityOdds }): { [string]: number }
+	local families: { [string]: number } = {}
+	for _, entry in odds do
+		local family = entry.Rarity.Family
+		families[family] = (families[family] or 0) + entry.Chance
+	end
+	return families
 end
 
 -- Fusão ----------------------------------------------------------------------

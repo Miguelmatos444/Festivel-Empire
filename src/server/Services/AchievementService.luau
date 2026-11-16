@@ -16,13 +16,13 @@ local Trove = require(ReplicatedStorage.Shared.Util.Trove)
 local Diag = require(ReplicatedStorage.Shared.Util.Diag)
 local DataService = require(script.Parent.DataService)
 local PlayerStateService = require(script.Parent.PlayerStateService)
-local EconomyService = require(script.Parent.EconomyService)
 local BassDropService = require(script.Parent.BassDropService)
 local GachaService = require(script.Parent.GachaService)
 local ArtistService = require(script.Parent.ArtistService)
 local StageService = require(script.Parent.StageService)
 local PrestigeService = require(script.Parent.PrestigeService)
 local RetentionService = require(script.Parent.RetentionService)
+local ArrowGameService = require(script.Parent.ArrowGameService)
 
 type ProfileData = Types.ProfileData
 
@@ -78,8 +78,8 @@ local function checkPlatinum(player: Player)
 end
 
 function AchievementService.Init()
-	trove:Add(EconomyService.Clicked:Connect(function(player: Player)
-		AchievementService.Award(player, "FirstBeat")
+	trove:Add(ArrowGameService.ArrowHit:Connect(function(player: Player)
+		AchievementService.Award(player, "FirstBeat") -- "Primeira Batida" = primeiro acerto no palco
 	end))
 	trove:Add(BassDropService.DropSucceeded:Connect(function(player: Player, grade: Types.DropGrade)
 		if grade == "Perfect" then

@@ -25,7 +25,21 @@ local Theme = table.freeze({
 		Colunas = Color3.fromRGB(43, 210, 255),
 		Mesas = Color3.fromRGB(255, 60, 172),
 		DJs = Color3.fromRGB(255, 209, 102),
-		Batidas = Color3.fromRGB(160, 120, 255),
+		Palco = Color3.fromRGB(160, 120, 255),
+	}),
+
+	-- Botões do SideMenu por ordem (1 Voltar … 7 Festivais): cor de fundo e ícone (emoji).
+	-- Para usar imagens próprias mais tarde, preencher ImageId (rbxassetid numérico; 0 = emoji).
+	-- Hidden = true: o botão não aparece (substituído pelo posto no terreno, Config/Stations);
+	-- a tecla de atalho do painel continua a funcionar.
+	SideButtons = table.freeze({
+		[1] = table.freeze({ Icon = "🏠", ImageId = 0, Hidden = false, Color = Color3.fromRGB(255, 176, 46) }),
+		[2] = table.freeze({ Icon = "🛠️", ImageId = 0, Hidden = true, Color = Color3.fromRGB(255, 122, 48) }),
+		[3] = table.freeze({ Icon = "🎪", ImageId = 0, Hidden = true, Color = Color3.fromRGB(240, 52, 150) }),
+		[4] = table.freeze({ Icon = "🎤", ImageId = 0, Hidden = true, Color = Color3.fromRGB(140, 82, 255) }),
+		[5] = table.freeze({ Icon = "🌍", ImageId = 0, Hidden = true, Color = Color3.fromRGB(32, 160, 255) }),
+		[6] = table.freeze({ Icon = "📋", ImageId = 0, Hidden = true, Color = Color3.fromRGB(40, 190, 110) }),
+		[7] = table.freeze({ Icon = "🎉", ImageId = 0, Hidden = false, Color = Color3.fromRGB(255, 84, 84) }),
 	}),
 
 	DropBar = table.freeze({

@@ -20,8 +20,10 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
 local MapConfig = require(ReplicatedStorage.Shared.Config.Map)
+local DanceFloorConfig = require(ReplicatedStorage.Shared.Config.DanceFloor)
 local MapCalc = require(ReplicatedStorage.Shared.Calc.MapCalc)
 local Placeholders = require(script.Parent.Parent.World.Placeholders)
+local Stations = require(script.Parent.Parent.World.Stations)
 local Assets = require(script.Parent.Parent.World.Assets)
 local Dressing = require(script.Parent.Parent.World.Dressing)
 
@@ -97,6 +99,56 @@ local function buildCurbs(model: Model, base: BasePart, color: Color3)
 	folder.Parent = model
 end
 
+-- Pista de dança à frente do palco (Config/DanceFloor). Os azulejos têm Col/Row (linha 1 = junto
+-- ao palco); as cores são animadas no cliente (DanceFloorController).
+local function buildDanceFloor(model: Model, base: BasePart)
+	local config = DanceFloorConfig
+	if not config.Enabled then
+		return
+	end
+	local plots = MapConfig.Plots
+	local folder = Instance.new("Model")
+	folder.Name = "DanceFloor"
+	local size = config.TileSize
+	local width = config.Columns * size
+	local front = plots.StageFront - config.StageGap -- profundidade da linha 1 (lado do palco)
+	local depth = config.Rows * size
+	local top = plots.BaseThickness / 2 -- topo da base, no espaço da base
+
+	local under = Placeholders.NewPart(
+		"Base",
+		Vector3.new(width + 1, config.Height * 0.5, depth + 1),
+		base.CFrame * CFrame.new(0, top + config.Height * 0.25, -plots.Depth / 2 + front - depth / 2),
+		config.BaseColor,
+		Enum.Material.SmoothPlastic,
+		folder
+	)
+	under.CanQuery = false
+
+	-- Cor inicial já no servidor (Underground, néon suave): a pista nunca fica preta,
+	-- mesmo antes de o cliente a animar
+	local palette = config.Palettes.Underground
+	for row = 1, config.Rows do
+		for col = 1, config.Columns do
+			local x = -width / 2 + (col - 0.5) * size
+			local tileDepth = front - (row - 0.5) * size
+			local tile = Placeholders.NewPart(
+				"Tile",
+				Vector3.new(size - config.Gap, config.Height, size - config.Gap),
+				base.CFrame * CFrame.new(x, top + config.Height / 2, -plots.Depth / 2 + tileDepth),
+				palette[(col + row) % #palette + 1]:Lerp(Color3.new(0, 0, 0), config.IdleDim),
+				Enum.Material.Neon,
+				folder
+			)
+			tile.CanQuery = false
+			tile.CastShadow = false
+			tile:SetAttribute("Col", col)
+			tile:SetAttribute("Row", row)
+		end
+	end
+	folder.Parent = model
+end
+
 local function buildPlot(index: number, parent: Instance): Model
 	local plots = MapConfig.Plots
 	local color = plots.Colors[index] or Color3.new(1, 1, 1)
@@ -127,6 +179,8 @@ local function buildPlot(index: number, parent: Instance): Model
 	addBaseAttachment(base, "Wing_R", wingX, stageMid, 0)
 
 	buildCurbs(model, base, color)
+	buildDanceFloor(model, base)
+	Stations.Build(model, base) -- postos (Melhorias, Artistas, …) com título
 
 	local spawn = Instance.new("SpawnLocation")
 	spawn.Name = "Spawn"

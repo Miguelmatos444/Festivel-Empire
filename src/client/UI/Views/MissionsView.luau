@@ -120,6 +120,9 @@ local function countClaimable(sync: RetentionSync): number
 	return count
 end
 
+-- Usado pelo posto MISSÕES no terreno (subtítulo "N por reclamar")
+MissionsView.CountClaimable = countClaimable
+
 function MissionsView.Mount()
 	if activeTrove then
 		return

@@ -13,7 +13,7 @@ local Economy = table.freeze({
 
 	-- Valores iniciais / base
 	StartingHype = 0,
-	BaseHypePerClick = 1,
+	BaseHypePerClick = 1, -- Hype base de cada acerto no palco (antes do Config/ArrowGame)
 	BasePassiveHypePerSecond = 0, -- sobe com equipamento/DJs/artistas nas fases seguintes
 
 	-- Rendimento offline
@@ -27,12 +27,6 @@ local Economy = table.freeze({
 	GrowthRate = table.freeze({
 		Min = 1.07,
 		Max = 1.15,
-	}),
-
-	-- Anti-autoclicker: batidas acima disto são descartadas no servidor
-	Click = table.freeze({
-		MaxCPS = 15, -- batidas por segundo sustentadas
-		Burst = 20, -- tolerância para rajadas curtas / latência
 	}),
 
 	-- Compras de equipamento

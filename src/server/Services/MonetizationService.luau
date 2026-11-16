@@ -3,8 +3,8 @@
 	MonetizationService
 	Gamepasses (posse em cache, compra durante a sessão) e Developer Products.
 	  - Hype ×2      -> EconomyService.SetGamepassMultiplier
-	  - Auto-Batida  -> o SERVIDOR aplica AutoClicksPerSecond batidas a cada segundo
-	                    (sem remotes do cliente); liga/desliga com SetAutoClick
+	  - Auto-Play    -> o ArrowGameService acerta parte das setas no palco (Config/ArrowGame.AutoPlay);
+	                    aqui só se guarda a preferência (SetAutoClick / IsAutoPlayOn)
 	  - Agente de Tour -> GetDiscBonus (lido pelo PrestigeService)
 	  - Palco VIP    -> slots tratados pelo ArtistService (mesmo id)
 	ProcessReceipt idempotente: os últimos PurchaseId ficam no perfil; só devolve
@@ -31,7 +31,7 @@ local MonetizationService = {}
 
 local changed: Signal.Signal<Player> = Signal.new()
 
--- Posse de Gamepasses ou preferência de Auto-Batida mudou
+-- Posse de Gamepasses ou preferência de Auto-Play mudou
 MonetizationService.Changed = changed
 
 local trove = Trove.new()
@@ -89,7 +89,7 @@ local function refreshOwnership(player: Player)
 	end
 end
 
--- Auto-Batida ------------------------------------------------------------------
+-- Auto-Play ---------------------------------------------------------------------
 
 function MonetizationService.SetAutoClick(player: Player, enabled: boolean)
 	local data = DataService.GetProfile(player)
@@ -97,25 +97,17 @@ function MonetizationService.SetAutoClick(player: Player, enabled: boolean)
 		return
 	end
 	if enabled and not MonetizationService.Owns(player, "AutoClicker") then
-		notify(player, "A Auto-Batida precisa do Gamepass na loja VIP.")
+		notify(player, "O Auto-Play precisa do Gamepass na loja VIP.")
 		enabled = false
 	end
 	data.AutoClick = enabled
 	changed:Fire(player)
 end
 
-local function autoClickLoop()
-	while true do
-		task.wait(1)
-		for player, map in owned do
-			if map.AutoClicker then
-				local data = DataService.GetProfile(player)
-				if data and data.AutoClick then
-					EconomyService.ApplyClicks(player, MonetizationConfig.AutoClicksPerSecond)
-				end
-			end
-		end
-	end
+-- true se o Auto-Play deve jogar por este jogador (Gamepass + preferência ligada)
+function MonetizationService.IsAutoPlayOn(player: Player): boolean
+	local data = DataService.GetProfile(player)
+	return data ~= nil and data.AutoClick and MonetizationService.Owns(player, "AutoClicker")
 end
 
 -- Developer Products -------------------------------------------------------------
@@ -201,7 +193,6 @@ function MonetizationService.Start()
 	for _, player in Players:GetPlayers() do
 		task.spawn(refreshOwnership, player)
 	end
-	trove:Add(task.spawn(autoClickLoop))
 end
 
 return MonetizationService

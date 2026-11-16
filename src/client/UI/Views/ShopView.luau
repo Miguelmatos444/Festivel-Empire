@@ -4,7 +4,7 @@
 	Loja num painel central (modal) com fundo escurecido e dois separadores:
 	  - EQUIPAMENTO: seletor x1 / x10 / x100 / MAX e cartões de equipamento
 	  - PIROTECNIA: desbloqueio das máquinas e lista de sinergias
-	Abre com o botão "LOJA" à esquerda, tecla B ou botão Y do comando.
+	Abre com o botão "MELHORIAS" à esquerda, tecla B ou botão Y do comando.
 	Os preços usam EquipmentCalc (iguais aos do servidor) e só são
 	recalculados com o painel aberto.
 ]]
@@ -74,7 +74,7 @@ local function categoryColor(category: EquipmentCategory): Color3
 	elseif category == "DJs" then
 		return colors.DJs
 	end
-	return colors.Batidas
+	return colors.Palco
 end
 
 local function modeLabel(mode: BuyMode): string
@@ -203,7 +203,7 @@ local function refreshEquipmentCard(card: Card, def: EquipmentDef, snapshot: Sna
 		return
 	end
 
-	local unit = if def.Kind == "Click" then " / batida" else " / s"
+	local unit = if def.Kind == "Click" then " / acerto" else " / s"
 	card.NameLabel.Text = def.Name
 	card.InfoLabel.Text = string.format(
 		"Nv. %s  ·  +%s%s",
@@ -279,7 +279,7 @@ function ShopView.Mount()
 
 	local playerGui = Players.LocalPlayer:WaitForChild("PlayerGui")
 
-	-- Botão LOJA (respeita a safe area) ------------------------------------
+	-- Botão MELHORIAS (respeita a safe area) ------------------------------------
 	local toggleGui = trove:Add(Instance.new("ScreenGui"))
 	toggleGui.Name = "ShopToggleGui"
 	toggleGui.ResetOnSpawn = false
@@ -307,7 +307,7 @@ function ShopView.Mount()
 	toggleLabel.AnchorPoint = Vector2.new(0.5, 0.5)
 	toggleLabel.Position = UDim2.fromScale(0.5, 0.42)
 	toggleLabel.Size = UDim2.new(0.85, 0, 0, 34)
-	toggleLabel.Text = "LOJA"
+	toggleLabel.Text = "MELHORIAS"
 	Components.addStroke(toggleLabel, Theme.Colors.Background, 2)
 	toggleLabel.Parent = toggleButton
 

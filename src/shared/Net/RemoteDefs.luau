@@ -14,11 +14,12 @@ local StagesConfig = require(script.Parent.Parent.Config.Stages)
 local ArtistsConfig = require(script.Parent.Parent.Config.Artists)
 local SkillTreeConfig = require(script.Parent.Parent.Config.SkillTree)
 local MapConfig = require(script.Parent.Parent.Config.Map)
+local ArrowGameConfig = require(script.Parent.Parent.Config.ArrowGame)
 
 type RemoteDef = Types.RemoteDef
 
 export type Registry = {
-	Click: RemoteDef,
+	ArrowHit: RemoteDef,
 	ClientReady: RemoteDef,
 	BuyEquipment: RemoteDef,
 	TriggerDrop: RemoteDef,
@@ -51,6 +52,7 @@ export type Registry = {
 	CrateResult: RemoteDef,
 	RetentionSync: RemoteDef,
 	SocialSync: RemoteDef,
+	ArrowEvent: RemoteDef,
 }
 
 local UID_ARG: Types.ArgSpec = { Kind = "string", MaxLength = 12, Pattern = "^%d+$" }
@@ -59,11 +61,14 @@ local BUY_MODES: { string } = { "x1", "x10", "x100", "Max" }
 
 local Defs: Registry = {
 	-- Cliente -> Servidor ----------------------------------------------------
-	Click = {
-		Name = "Click",
+	ArrowHit = { -- (arrowId: inteiro, direção) — "carreguei nesta seta para esta bolinha"
+		Name = "ArrowHit",
 		Direction = "ClientToServer",
-		RateLimit = { PerSecond = EconomyConfig.Click.MaxCPS, Burst = EconomyConfig.Click.Burst },
-		Args = {},
+		RateLimit = { PerSecond = 8, Burst = 12 }, -- teto real: 1 acerto por bolinha gerada
+		Args = {
+			{ Kind = "number", Integer = true, Min = 1, Max = 2 ^ 31 },
+			{ Kind = "enum", Values = ArrowGameConfig.Directions },
+		},
 	},
 	ClientReady = {
 		Name = "ClientReady",
@@ -264,10 +269,15 @@ local Defs: Registry = {
 		Direction = "ServerToClient",
 		Args = {},
 	},
+	ArrowEvent = { -- payload: Types.ArrowEvent (só o próprio jogador)
+		Name = "ArrowEvent",
+		Direction = "ServerToClient",
+		Args = {},
+	},
 }
 
 local All: { RemoteDef } = {
-	Defs.Click,
+	Defs.ArrowHit,
 	Defs.ClientReady,
 	Defs.BuyEquipment,
 	Defs.TriggerDrop,
@@ -300,6 +310,7 @@ local All: { RemoteDef } = {
 	Defs.CrateResult,
 	Defs.RetentionSync,
 	Defs.SocialSync,
+	Defs.ArrowEvent,
 }
 
 return table.freeze({

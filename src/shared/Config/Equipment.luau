@@ -11,12 +11,13 @@ local Types = require(script.Parent.Parent.Types)
 type EquipmentDef = Types.EquipmentDef
 
 local List: { EquipmentDef } = {
-	-- Batidas (upgrade de clique) ------------------------------------------
+	-- Palco (Hype por acerto no minijogo de setas) ------------------------------
+	-- Id "BeatPad" mantido por compatibilidade com os perfis gravados.
 	{
 		Id = "BeatPad",
-		Name = "Pad de Batidas",
-		Description = "Cada nível dá +1 Hype por batida.",
-		Category = "Batidas",
+		Name = "Microfone de Palco",
+		Description = "Cada nível dá +1 Hype base a cada seta que acertas no palco.",
+		Category = "Palco",
 		Kind = "Click",
 		BaseCost = 25,
 		GrowthRate = 1.15,

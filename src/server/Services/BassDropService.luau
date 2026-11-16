@@ -7,7 +7,8 @@
 	                                              \--(janela fecha)--> Salva-Drop? -> Boost
 	                                                                  \-> Charging (energia = MissEnergyReset)
 
-	- Energia: passiva no tick de 1 Hz + EnergyPerClick por batida aceite (+ bónus "Carga").
+	- Energia: passiva no tick de 1 Hz + AddEnergy pelos acertos do minijogo de setas
+	  (+ bónus "Carga").
 	- Transições agendadas com task.delay e protegidas por token (sem loops por frame).
 	- Timing validado com os.clock() na chegada do pedido menos o ping do jogador
 	  (limitado a MaxLatencyCompensation); "Ouvido Fino" alarga a janela e as notas.
@@ -336,6 +337,12 @@ local function energyMultiplier(player: Player): number
 	return multiplier
 end
 
+-- Energia vinda do minijogo de setas (já com a nota); aplica os multiplicadores de energia.
+-- Só conta na fase de carga.
+function BassDropService.AddEnergy(player: Player, amount: number)
+	addEnergy(player, amount * energyMultiplier(player))
+end
+
 -- Multiplicador extra de energia por fonte (evento Headliner, tutorial). value <= 1 remove a fonte.
 function BassDropService.SetEnergyMultiplier(player: Player, source: string, value: number)
 	local extra = energyMultipliers[player]
@@ -465,10 +472,6 @@ function BassDropService.Init()
 		sessions[player] = session
 		saveDropReady[player] = nil
 		startCharging(player, session, 0)
-	end))
-
-	trove:Add(EconomyService.Clicked:Connect(function(player: Player, count: number)
-		addEnergy(player, BassDropConfig.EnergyPerClick * count * energyMultiplier(player))
 	end))
 
 	trove:Add(PyroService.Changed:Connect(function(player: Player)
