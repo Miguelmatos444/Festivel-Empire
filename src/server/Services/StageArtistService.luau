@@ -12,9 +12,11 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Types = require(ReplicatedStorage.Shared.Types)
 local LodConfig = require(ReplicatedStorage.Shared.Config.Lod)
+local RarityCosmetics = require(ReplicatedStorage.Shared.Config.RarityCosmetics)
 local Trove = require(ReplicatedStorage.Shared.Util.Trove)
 local Diag = require(ReplicatedStorage.Shared.Util.Diag)
 local ArtistCalc = require(ReplicatedStorage.Shared.Calc.ArtistCalc)
+local StageCalc = require(ReplicatedStorage.Shared.Calc.StageCalc)
 local Assets = require(script.Parent.Parent.World.Assets)
 local DataService = require(script.Parent.DataService)
 local MapService = require(script.Parent.MapService)
@@ -50,7 +52,8 @@ local function clearArtists(index: number)
 end
 
 local function addNameplate(rig: Model, data: ArtistData, rarity: RarityDef)
-	local head = rig:FindFirstChild("Head")
+	-- Modelos do Blender: HeadAnchor (centro da cabeça); placeholder: Head
+	local head = rig:FindFirstChild("HeadAnchor", true) or rig:FindFirstChild("Head")
 	local adornee = if head and head:IsA("BasePart") then head else rig.PrimaryPart
 	if not adornee then
 		return
@@ -123,10 +126,77 @@ local function decorate(rig: Model, data: ArtistData)
 	addNameplate(rig, data, rarity)
 end
 
--- Distância do pivot do rig à base dos pés (para assentar no estrado)
-local function footOffset(rig: Model): number
-	local boxCFrame, size = rig:GetBoundingBox()
-	return rig:GetPivot().Position.Y - (boxCFrame.Position.Y - size.Y / 2)
+-- Kits de raridade -------------------------------------------------------------------
+
+local KIT_ANIMATION_PREFIXES = { "Spin_", "Orbit_", "Float_", "Flap_", "Pulse_", "FXPoint_" }
+
+local function isKitAnimated(name: string): boolean
+	for _, prefix in KIT_ANIMATION_PREFIXES do
+		if string.find(name, prefix, 1, true) then
+			return true
+		end
+	end
+	return false
+end
+
+--[[
+	Encaixa o kit da raridade em cada HeadAnchor* do artista (bandas têm vários) ou, no
+	boneco placeholder, na cabeça. O kit fica dentro do rig (a dança leva-o junto).
+	Para o cliente animar sem ler posições no ChildAdded, grava em atributos:
+	  kit.KitCenter (centro da cabeça) e peça.KitOffset, ambos relativos ao BaseCFrame.
+]]
+local function attachKits(rig: Model, artist: ArtistData, base: CFrame)
+	local style = RarityCosmetics.ByRarity[artist.Rarity]
+	local kitName = if style then style.Kit else nil
+	if not kitName then
+		return
+	end
+	local template = Assets.GetRarityKitTemplate(kitName)
+	if not template then
+		return
+	end
+
+	local anchors: { BasePart } = {}
+	for _, descendant in rig:GetDescendants() do
+		if descendant:IsA("BasePart") and string.sub(descendant.Name, 1, 10) == "HeadAnchor" then
+			table.insert(anchors, descendant)
+		end
+	end
+	local usingHead = false
+	if #anchors == 0 then
+		local head = rig:FindFirstChild("Head", true)
+		if head and head:IsA("BasePart") then
+			table.insert(anchors, head)
+			usingHead = true
+		end
+	end
+	table.sort(anchors, function(a: BasePart, b: BasePart): boolean
+		return a.Name < b.Name
+	end)
+
+	for index, anchor in anchors do
+		local kit = template:Clone()
+		kit.Name = "RarityKit_" .. index
+		local scale = if usingHead
+			then anchor.Size.Y / RarityCosmetics.PlaceholderHeadReference
+			else anchor.Size.X / RarityCosmetics.HeadAnchorReference
+		if scale > 0.05 and math.abs(scale - 1) > 0.01 then
+			pcall(function()
+				kit:ScaleTo(scale)
+			end)
+		end
+		kit:PivotTo(anchor.CFrame)
+		local primary = kit.PrimaryPart
+		local center = if primary then primary.CFrame else anchor.CFrame
+		kit:SetAttribute("KitCenter", base:ToObjectSpace(center))
+		kit:SetAttribute("KitScale", scale)
+		for _, descendant in kit:GetDescendants() do
+			if descendant:IsA("BasePart") and isKitAnimated(descendant.Name) then
+				descendant:SetAttribute("KitOffset", base:ToObjectSpace(descendant.CFrame))
+			end
+		end
+		kit.Parent = rig
+	end
 end
 
 function StageArtistService.Refresh(player: Player)
@@ -144,6 +214,13 @@ function StageArtistService.Refresh(player: Player)
 		return
 	end
 
+	local plotFacing = Assets.GetPlotFacing(model)
+	local facing = if plotFacing then plotFacing.Rotation else root.CFrame.Rotation
+	local groundY = if plotFacing then plotFacing.Position.Y else root.Position.Y - root.Size.Y / 2
+	local tierAttribute = stage:GetAttribute("Tier")
+	local stageDef = StageCalc.GetDef(if type(tierAttribute) == "number" then tierAttribute else 1)
+	local stageHeight = stageDef.Height
+
 	local folder = Instance.new("Folder")
 	folder.Name = FOLDER_NAME
 	local placed = 0
@@ -158,9 +235,22 @@ function StageArtistService.Refresh(player: Player)
 			rig:SetAttribute("Stars", artist.Stars)
 			rig:SetAttribute("OwnerUserId", player.UserId)
 			decorate(rig, artist)
-			rig:PivotTo(attachment.WorldCFrame * CFrame.new(0, footOffset(rig), 0))
+			-- Assenta os pés na superfície real do estrado (não confia na altura do Attachment,
+			-- que nos FBX pode vir errada) e vira o artista para o público, sempre de pé
+			-- Mesma fórmula do contrato (x de -35% a +35% da largura, a 30% da profundidade),
+			-- calculada a partir do terreno: imune a um Root rodado no FBX
+			local point = attachment.WorldPosition
+			if plotFacing then
+				local x = -0.35 * stageDef.Width + (slot - 1) * (0.7 * stageDef.Width / 6)
+				point = (plotFacing * CFrame.new(x, 0, 0.3 * stageDef.Depth)).Position
+			end
+			local surfaceY = Assets.FindStageSurfaceY(stage :: Model, point, groundY, stageHeight, math.max(attachment.WorldPosition.Y, groundY))
+			Assets.PlaceUpright(rig, Vector3.new(point.X, surfaceY, point.Z), facing)
+			rig:SetAttribute("Facing", facing)
 			-- Posição de referência para a dança no cliente (replica junto com o modelo)
-			rig:SetAttribute("BaseCFrame", rig:GetPivot())
+			local base = rig:GetPivot()
+			attachKits(rig, artist, base)
+			rig:SetAttribute("BaseCFrame", base)
 			rig.Parent = folder
 			placed += 1
 		end

@@ -258,7 +258,12 @@ local function rhythmLight(part: BasePart, range: number)
 	light.Parent = part
 end
 
-local function buildPlazaDecor(visual: Model)
+export type PlazaDecorOptions = {
+	SkipFoodTrucks: boolean?, -- o modelo do Blender (Props) substitui as roulottes
+	SkipArches: boolean?, -- o modelo do Blender (Props) substitui os arcos
+}
+
+local function buildPlazaDecor(visual: Model, options: PlazaDecorOptions)
 	local plaza = MapConfig.Plaza
 	local decor = plaza.Decor
 	local metal = Color3.fromRGB(60, 60, 68)
@@ -281,7 +286,7 @@ local function buildPlazaDecor(visual: Model)
 	end
 
 	-- Roulottes de comida, viradas para o centro
-	for index, angle in decor.FoodTruckAngles do
+	for index, angle in if options.SkipFoodTrucks then {} else decor.FoodTruckAngles do
 		local base = MapCalc.PlazaPoint(angle, decor.FoodTruckRadius, 0)
 		local color = DECOR_COLORS[(index + 1) % #DECOR_COLORS + 1]
 		local body = Placeholders.NewPart("FoodTruck_" .. index, Vector3.new(10, 6, 5), base * CFrame.new(0, 3.6, 0), color, Enum.Material.SmoothPlastic, visual)
@@ -325,7 +330,7 @@ local function buildPlazaDecor(visual: Model)
 	end
 
 	-- Arco de entrada no início de cada caminho (limite da praça)
-	for index = 1, MapConfig.Plots.Count do
+	for index = 1, if options.SkipArches then 0 else MapConfig.Plots.Count do
 		local angle = (index - 1) * 360 / MapConfig.Plots.Count
 		local base = MapCalc.PlazaPoint(angle, plaza.Radius + 1, 0)
 		local halfSpan = plaza.PathWidth / 2 + 1
@@ -407,7 +412,7 @@ end
 
 -- Decoração da praça como modelo próprio (override: ServerStorage/Assets/PlazaDecor).
 -- Origem = centro do mapa, no chão. Root = caixa do anel de passeio.
-function Placeholders.BuildPlazaDecor(): Model
+function Placeholders.BuildPlazaDecor(options: PlazaDecorOptions?): Model
 	local outer = MapConfig.Plaza.RingOuterRadius
 	local model = Instance.new("Model")
 	model.Name = "PlazaDecor"
@@ -415,7 +420,7 @@ function Placeholders.BuildPlazaDecor(): Model
 	local visual = Instance.new("Model")
 	visual.Name = "Visual"
 	visual.Parent = model
-	buildPlazaDecor(visual)
+	buildPlazaDecor(visual, options or {})
 	return model
 end
 
@@ -661,6 +666,11 @@ function Placeholders.ExportAll(): number
 			created += 1
 		end
 	end
+
+	-- Pastas vazias para os modelos do Blender que não têm placeholder exportável
+	getOrCreateFolder(assets, "Artists")
+	getOrCreateFolder(assets, "RarityKits")
+	getOrCreateFolder(assets, "Props")
 
 	print(string.format("[Placeholders] %d modelos criados em ServerStorage/Assets. Grava o place para os manter.", created))
 	return created

@@ -23,6 +23,7 @@ local MapConfig = require(ReplicatedStorage.Shared.Config.Map)
 local MapCalc = require(ReplicatedStorage.Shared.Calc.MapCalc)
 local Placeholders = require(script.Parent.Parent.World.Placeholders)
 local Assets = require(script.Parent.Parent.World.Assets)
+local Dressing = require(script.Parent.Parent.World.Dressing)
 
 local MapService = {}
 
@@ -213,6 +214,7 @@ function MapService.Init()
 		Assets.PivotRoot(decor, CFrame.new(0, decorRoot.Size.Y / 2, 0))
 	end
 	decor.Parent = plaza
+	Dressing.DressPlaza(plaza) -- adereços do Blender (Props), se existirem
 	plaza.Parent = folder
 
 	local plotsFolder = Instance.new("Folder")
