@@ -85,6 +85,9 @@ local resolver: EmitterResolver = defaultResolver
 
 -- API pública --------------------------------------------------------------------
 
+-- Resolver por defeito (à volta da personagem), útil como fallback de outros resolvers
+PyroVfxController.DefaultResolver = defaultResolver
+
 function PyroVfxController.SetEmitterResolver(newResolver: EmitterResolver?)
 	resolver = newResolver or defaultResolver
 end

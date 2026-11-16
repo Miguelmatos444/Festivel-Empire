@@ -25,6 +25,10 @@ local EquipmentService = require(script.Parent.EquipmentService)
 local PlayerStateService = require(script.Parent.PlayerStateService)
 local PyroService = require(script.Parent.PyroService)
 local BassDropService = require(script.Parent.BassDropService)
+local PlotService = require(script.Parent.PlotService)
+local StageService = require(script.Parent.StageService)
+local MapCalc = require(ReplicatedStorage.Shared.Calc.MapCalc)
+local MapConfig = require(ReplicatedStorage.Shared.Config.Map)
 
 type Command = {
 	Usage: string,
@@ -37,8 +41,24 @@ local DebugService = {}
 local trove = Trove.new()
 local adminCache: { [Player]: boolean } = {}
 local commands: { [string]: Command } = {}
-local COMMAND_ORDER =
-	{ "help", "hype", "pps", "offline", "cost", "equip", "energy", "drop", "pyro", "cd", "state", "save", "wipe" }
+local COMMAND_ORDER = {
+	"help",
+	"hype",
+	"pps",
+	"offline",
+	"cost",
+	"equip",
+	"energy",
+	"drop",
+	"pyro",
+	"cd",
+	"stage",
+	"plots",
+	"home",
+	"state",
+	"save",
+	"wipe",
+}
 
 -- Permissões -----------------------------------------------------------------
 
@@ -293,6 +313,50 @@ commands.cd = {
 		end
 		PyroService.ResetCooldowns(player)
 		return "Cooldowns limpos."
+	end,
+}
+
+commands.stage = {
+	Usage = "stage <1-12>",
+	Description = "Troca o palco do teu terreno (sem requisitos)",
+	Run = function(player: Player, args: { string }): string
+		local tier = tonumber(args[1] or "")
+		if not tier or not StageService.SetTier(player, tier) then
+			return "Uso: /fe stage <1-12>  (requer terreno e perfil carregados)"
+		end
+		local def = MapCalc.GetStageDef(tier)
+		return string.format(
+			"Tier %d · %s (%s) — envelope %d x %d x %d",
+			def.Tier,
+			def.Name,
+			def.Era,
+			def.Width,
+			def.Depth,
+			def.Height
+		)
+	end,
+}
+
+commands.plots = {
+	Usage = "plots",
+	Description = "Lista os donos dos terrenos",
+	Run = function(_player: Player, _args: { string }): string
+		local lines = { "Terrenos:" }
+		for index = 1, MapConfig.Plots.Count do
+			local owner = PlotService.GetOwner(index)
+			table.insert(lines, string.format("Plot_%d — %s", index, if owner then owner.Name else "livre"))
+		end
+		return table.concat(lines, "\n")
+	end,
+}
+
+commands.home = {
+	Usage = "home",
+	Description = "Teleporta para o teu terreno",
+	Run = function(player: Player, _args: { string }): string
+		return if PlotService.TeleportHome(player)
+			then "De volta ao teu festival."
+			else "Não foi possível (sem personagem, sem terreno ou em cooldown)."
 	end,
 }
 
