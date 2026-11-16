@@ -524,6 +524,7 @@ function CrateRevealView.Mount()
 	end)
 
 	CrateCinematicController.SetOverlay({
+		Gui = cinematicGui,
 		SetFade = function(alpha: number, time: number)
 			TweenService:Create(fade, TweenInfo.new(math.max(time, 0.01)), { BackgroundTransparency = 1 - alpha }):Play()
 		end,

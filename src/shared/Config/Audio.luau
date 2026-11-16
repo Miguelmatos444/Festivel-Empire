@@ -22,7 +22,8 @@ local CRATE_SOUNDS: { [string]: number } = {
 	MysteryPulse = 0, -- "???" a pulsar
 	Thunder = 0,
 	RiftOpen = 0, -- o céu começa a rachar
-	SkyShatter = 0, -- o céu estilhaça
+	SkyHit = 0, -- pancada no céu (cada teia de rachas)
+	SkyShatter = 0, -- o céu parte-se
 	Impact = 0, -- aterragem do artista
 	RevealSting = 0, -- revelação final
 }
@@ -39,6 +40,7 @@ local CRATE_FALLBACKS: { [string]: FallbackSound } = {
 	MysteryPulse   = { Path = "rbxasset://sounds/electronicpingshort.wav",  Speed = 0.45, Volume = 0.7 },
 	Thunder        = { Path = "rbxasset://sounds/collide.wav",              Speed = 0.25, Volume = 1 },
 	RiftOpen       = { Path = "rbxasset://sounds/electronicpingshort.wav",  Speed = 0.3,  Volume = 0.8 },
+	SkyHit         = { Path = "rbxasset://sounds/collide.wav",              Speed = 0.8,  Volume = 1 },
 	SkyShatter     = { Path = "rbxasset://sounds/collide.wav",              Speed = 0.6,  Volume = 1 },
 	Impact         = { Path = "rbxasset://sounds/collide.wav",              Speed = 0.35, Volume = 1 },
 	RevealSting    = { Path = "rbxasset://sounds/electronicpingshort.wav",  Speed = 0.85, Volume = 1 },

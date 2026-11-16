@@ -7,8 +7,8 @@
 	  <Modelo> (Model, PrimaryPart = Root)
 	  ├── Root    Part invisível e ancorada (posição/rotação do efeito)
 	  └── Visual  geometria
-	Override opcional em ReplicatedStorage/Assets/Cinematics/<Nome> (Cloud, SkyShard,
-	Crater, Debris). Sem override, usa os placeholders feitos por código abaixo.
+	Override opcional em ReplicatedStorage/Assets/Cinematics/<Nome> (Cloud, Crater,
+	Debris). Sem override, usa os placeholders feitos por código abaixo.
 
 	Os artistas vêm de ReplicatedStorage/ArtistRigs/<ArtistId> (copiados pelo servidor);
 	sem rig usa um boneco simples de blocos.
@@ -84,28 +84,42 @@ end
 
 -- Placeholders -----------------------------------------------------------------
 
--- Nuvem de tempestade: 5 elipsoides achatados (SpecialMesh Sphere) + névoa opcional
--- (ParticleEmitter "Mist" com Rate 0; a cinemática liga-o numa parte das nuvens)
+-- Nuvem de tempestade: 9 elipsoides (SpecialMesh Sphere) em 3 camadas — base larga e mais
+-- escura (é o que se vê de baixo), meio na cor base e topo mais claro — dá volume.
+-- Névoa opcional (ParticleEmitter "Mist" com Rate 0; a cinemática liga-o em parte das nuvens).
 local function buildCloud(): Model
-	local model, root, visual = makeModel("Cloud", Vector3.new(44, 14, 40))
-	local color = Color3.fromRGB(40, 40, 50)
+	local model, root, visual = makeModel("Cloud", Vector3.new(56, 22, 50))
+	local color = CrateAnimConfig.Cinematic.CloudColor
+	local dark = color:Lerp(Color3.new(0, 0, 0), 0.18)
+	local light = color:Lerp(Color3.new(1, 1, 1), 0.22)
 	local offsets: { Vector3 } = {
-		Vector3.new(0, 0, 0),
-		Vector3.new(14, -2, 5),
-		Vector3.new(-13, -1, -4),
-		Vector3.new(4, 3, -11),
-		Vector3.new(-5, -2, 12),
+		-- base (larga e achatada, mais escura)
+		Vector3.new(0, -4, 0),
+		Vector3.new(17, -4.5, 6),
+		Vector3.new(-16, -4, -5),
+		-- meio
+		Vector3.new(8, 0, -10),
+		Vector3.new(-9, 0.5, 11),
+		Vector3.new(14, 1, 12),
+		Vector3.new(-14, 0, -12),
+		-- topo (mais claro)
+		Vector3.new(2, 5, 2),
+		Vector3.new(-6, 4, -4),
 	}
 	local sizes: { Vector3 } = {
-		Vector3.new(34, 13, 30),
-		Vector3.new(24, 10, 22),
-		Vector3.new(26, 11, 24),
-		Vector3.new(20, 9, 20),
-		Vector3.new(22, 9, 18),
+		Vector3.new(40, 10, 34),
+		Vector3.new(28, 8, 26),
+		Vector3.new(30, 9, 28),
+		Vector3.new(26, 12, 24),
+		Vector3.new(24, 11, 22),
+		Vector3.new(20, 10, 20),
+		Vector3.new(22, 10, 20),
+		Vector3.new(24, 13, 22),
+		Vector3.new(18, 11, 18),
 	}
 	for index, offset in offsets do
-		local puff = newPart("Puff" .. index, sizes[index], CFrame.new(offset), color, Enum.Material.SmoothPlastic, visual)
-		puff.Transparency = 0.04
+		local tint = if index <= 3 then dark elseif index <= 7 then color else light
+		local puff = newPart("Puff" .. index, sizes[index], CFrame.new(offset), tint, Enum.Material.SmoothPlastic, visual)
 		local mesh = Instance.new("SpecialMesh")
 		mesh.MeshType = Enum.MeshType.Sphere
 		mesh.Parent = puff
@@ -113,8 +127,8 @@ local function buildCloud(): Model
 	local mist = Instance.new("ParticleEmitter")
 	mist.Name = "Mist"
 	mist.Texture = "rbxasset://textures/particles/smoke_main.dds"
-	mist.Color = ColorSequence.new(Color3.fromRGB(55, 55, 66))
-	mist.Size = NumberSequence.new(28, 38)
+	mist.Color = ColorSequence.new(color:Lerp(Color3.new(1, 1, 1), 0.15))
+	mist.Size = NumberSequence.new(34, 48)
 	mist.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.3, 0.55), NumberSequenceKeypoint.new(1, 1) })
 	mist.Lifetime = NumberRange.new(3, 4.5)
 	mist.Speed = NumberRange.new(1, 3)
@@ -122,14 +136,6 @@ local function buildCloud(): Model
 	mist.LockedToPart = true
 	mist.Rate = 0
 	mist.Parent = root
-	return model
-end
-
--- Estilhaço do céu (fase Rift); override opcional em Assets/Cinematics/SkyShard
-local function buildSkyShard(): Model
-	local model, _root, visual = makeModel("SkyShard", Vector3.new(8, 0.5, 8))
-	local shard = newPart("Shard", Vector3.new(8, 0.5, 8), CFrame.new(), Color3.fromRGB(255, 236, 200), Enum.Material.Neon, visual)
-	shard.Transparency = 0.2
 	return model
 end
 
@@ -170,7 +176,6 @@ end
 
 local BUILDERS: { [string]: () -> Model } = {
 	Cloud = buildCloud,
-	SkyShard = buildSkyShard,
 	Crater = buildCrater,
 	Debris = buildDebris,
 }

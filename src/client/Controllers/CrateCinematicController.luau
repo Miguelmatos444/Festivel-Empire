@@ -9,17 +9,22 @@
 	  PlayLight(summon)     versão leve para os outros jogadores, por cima do terreno de quem
 	                        abriu, sem tocar na câmara nem na iluminação, com LOD por distância
 
-	O céu:
-	  - Storm:   Terrain.Clouds a 100% (só neste cliente) + teto de nuvens 3D em anéis que
-	             cobre tudo o que a câmara vê; relâmpagos grossos com ramificações, a cair
-	             até ao chão ou a atravessar o teto, cada um com duplo clarão
-	  - SkyOpen: as nuvens afastam-se do centro e aparece uma "janela" de céu luminosa
-	  - Rift:    rachas na cor da raridade crescem pela janela até à borda; o céu estilhaça
-	             em pedaços que voam e o artista cai pelo buraco
+	O céu (o sol fica escondido do início ao fim):
+	  - Storm:   o céu azul fecha-se: as nuvens 3D vêm do horizonte até ao centro, com um teto
+	             contínuo de placas por cima (sem buracos) e Terrain.Clouds a 100% (só neste
+	             cliente); depois chuva e relâmpagos grossos com ramificações e duplo clarão
+	  - SkyOpen: nuvens e teto afastam-se do centro e volta o céu azul normal
+	  - SkyOpen: (abertura em redemoinho: anéis de dentro primeiro, nuvens a subir e a
+	             inclinar, teto a sair depois, sopro de névoa)
+	  - Rift:    alguém do outro lado dá pancadas no céu (BREACH.Hits): cada pancada abre uma
+	             teia de rachas e arranca um pedaço — os fragmentos azuis caem e fica aberto
+	             "outro mundo" (preto-roxo com estrelas e nebulosa, contorno na cor da
+	             raridade). O buraco cresce a cada pancada; a última abre o centro e o
+	             artista sai daí
 
 	Regras:
-	  - Lighting/Terrain.Clouds: só efeitos criados aqui + propriedades guardadas e repostas
-	    EXATAMENTE no fim
+	  - Lighting/Sky/Terrain.Clouds: só efeitos criados aqui + propriedades guardadas e
+	    repostas EXATAMENTE no fim
 	  - Mapa: cratera, rachas e detritos são peças locais numa pasta própria, removidas no fim
 	  - Personagem parada (WalkSpeed/Jump a 0) e reposta no fim; o servidor dá o ForceField
 	  - Morrer, fazer reset ou outra UI abrir a meio -> Cancel() repõe tudo de imediato
@@ -32,6 +37,7 @@ local Lighting = game:GetService("Lighting")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local StarterGui = game:GetService("StarterGui")
 local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
 
@@ -59,6 +65,7 @@ export type CinematicParams = {
 }
 
 export type CinematicOverlay = {
+	Gui: ScreenGui, -- fica visível quando a restante interface é escondida
 	SetFade: (alpha: number, time: number) -> (),
 	Flash: (strength: number) -> (),
 	ShowTitle: (artistName: string, rarity: RarityDef) -> (),
@@ -87,37 +94,84 @@ type Deck = {
 	Angles: { number },
 	Radii: { number },
 	Heights: { number },
+	Rings: { number }, -- anel de cada nuvem (1 = centro)
+	Yaws: { number }, -- rotação própria de cada nuvem (variedade)
+	RingCount: number,
+	-- Todas as peças das nuvens + placas, movidas com um único Workspace:BulkMoveTo
+	Parts: { BasePart },
+	Offsets: { CFrame }, -- peça relativa ao pivot da sua nuvem
+	First: { number }, -- 1.ª peça de cada nuvem em Parts
+	Last: { number },
+	CFrames: { CFrame }, -- reutilizado a cada frame
+	Plates: { BasePart },
+	PlateAngles: { number },
 	Spin: number,
-	Open: number, -- 0 = fechado, 1 = aberto
+	Offset: number, -- fecho: studs para fora da posição fechada (grande -> 0)
+	Open: number, -- abertura 0..1 (anéis de dentro primeiro, em redemoinho)
 }
 
 type Bolt = {
-	Segments: { BasePart },
-	Light: PointLight,
+	Core: { BasePart }, -- núcleo branco
+	Glow: { BasePart }, -- brilho azulado à volta (mesma geometria, mais largo)
+	Reveal: { number }, -- 0..1: quando cada segmento aparece enquanto o relâmpago se desenha
+	Used: { boolean }, -- segmento faz parte do relâmpago atual
+	Shown: { boolean },
+	Lights: { PointLight },
 	StrikeTime: number,
-	Visible: boolean,
+	Active: boolean,
 }
 
-type SkyCrack = {
-	Pane: BasePart,
+-- A brecha no céu: malha de fragmentos (triângulos), rachas nas arestas, outro mundo
+-- no lugar de cada fragmento que cai
+type Breach = {
 	Center: Vector3,
-	Radius: number,
-	Burst: PointLight,
-	Segments: { BasePart },
-	Starts: { Vector3 },
-	Ends: { Vector3 },
-	From: { number },
-	To: { number },
-	Shattered: boolean,
-	Shards: { Model },
-	ShardParts: { BasePart },
+	Axis: Vector3, -- horizontal, perpendicular à câmara
+	Side: Vector3, -- no plano do céu, na direção da câmara
+	Scale: number,
+	LowVfx: boolean,
+	Rarity: RarityDef,
+	Folder: Folder,
+	Burst: ParticleEmitter,
+	BurstAnchor: BasePart,
+	-- Uma luz e um feixe por pancada, no sítio onde o céu partiu
+	HitLights: { PointLight },
+	HitBeams: { BasePart },
+	HitStart: { number },
+	HitOpened: { number }, -- fragmentos já caídos de cada pancada
+	TriHit: { number }, -- pancada que fez cair cada triângulo (0 = nenhuma)
+	Points: { [number]: Vector3 },
+	-- Triângulos (índices dos vértices em Points)
+	TriA: { number },
+	TriB: { number },
+	TriC: { number },
+	TriCentroid: { Vector3 },
+	TriJag: { number }, -- -1..1: irregularidade da borda
+	TriOpenAt: { number }, -- os.clock() em que cai (math.huge = ainda não marcado)
+	TriOpened: { boolean },
+	TriEdges: { { number } },
+	-- Arestas
+	EdgeA: { number },
+	EdgeB: { number },
+	EdgeTris: { { number } },
+	EdgeState: { number }, -- 0 nada, 1 racha, 2 contorno, 3 escondida
+	EdgeShowAt: { number },
+	EdgeParts: { [number]: BasePart },
+	HitsDone: number,
+	Opened: number,
+	-- Fragmentos a cair (2 cunhas cada)
+	ShardA: { BasePart },
+	ShardB: { BasePart },
+	OffsetA: { CFrame },
+	OffsetB: { CFrame },
 	ShardCF: { CFrame },
 	ShardVel: { Vector3 },
 	ShardSpin: { number },
-	ShardAge: number,
+	ShardBorn: { number },
+	ShardAlive: { boolean },
 }
-
 type SavedState = {
+	HiddenGuis: { ScreenGui }, -- interface do jogo escondida durante a cinemática
+	CoreGuis: { [Enum.CoreGuiType]: boolean }, -- chat, lista de jogadores, etc.
 	Lighting: { [string]: unknown },
 	Atmosphere: Atmosphere,
 	AtmosphereCreated: boolean,
@@ -125,6 +179,9 @@ type SavedState = {
 	Clouds: Clouds,
 	CloudsCreated: boolean,
 	CloudsProps: { [string]: unknown },
+	Sky: Sky,
+	SkyCreated: boolean,
+	SkyProps: { [string]: unknown },
 	CameraType: Enum.CameraType,
 	CameraSubject: Instance?,
 	FieldOfView: number,
@@ -157,9 +214,8 @@ type Session = {
 	Bolts: { Bolt },
 	NextBolt: number,
 	Strikes: { boolean },
-	Rays: { BasePart },
-	Crack: SkyCrack?,
-	PanePos: Vector3,
+	Breach: Breach?,
+	BreachPos: Vector3,
 	Rain: BasePart?,
 	Sil: Silhouette?,
 	Shockwave: BasePart?,
@@ -167,6 +223,10 @@ type Session = {
 	ShakeUntil: number,
 	ShakeMagnitude: number,
 	ShakeDuration: number,
+	BlendFrom: CFrame?, -- plano anterior (transição suave entre fases)
+	BlendStart: number,
+	BlendTime: number,
+	FovKick: number, -- "zoom" momentâneo das pancadas (graus)
 	EndSwapped: boolean,
 	OrbitBase: number,
 }
@@ -174,12 +234,14 @@ type Session = {
 local CrateCinematicController = {}
 
 local CIN = CrateAnimConfig.Cinematic
+local BREACH = CIN.Breach
+local CEILING = CIN.Ceiling
 local LIGHT = CrateAnimConfig.Light
 local FOLDER_NAME = "FE_Cinematic"
 local MAX_LIGHT_SESSIONS = 2
-local PANE_COLOR = Color3.fromRGB(255, 236, 200)
-local BOLT_SEGMENTS = 6
-local BRANCH_SEGMENTS = 3
+local BOLT_SEGMENTS = CIN.BoltSegments
+local BRANCH_SEGMENTS = CIN.BranchSegments
+local BLACK = Color3.new(0, 0, 0)
 
 local current: Session? = nil
 local overlay: CinematicOverlay? = nil
@@ -223,6 +285,26 @@ local function placeSegment(part: BasePart, from: Vector3, to: Vector3, width: n
 	part.CFrame = CFrame.lookAt((from + to) / 2, to)
 end
 
+local function addEllipsoidMesh(part: BasePart)
+	local mesh = Instance.new("SpecialMesh")
+	mesh.MeshType = Enum.MeshType.Sphere
+	mesh.Parent = part
+end
+
+-- Início de uma fase na timeline completa (para sincronizar a versão leve)
+local function phaseStart(name: string): number
+	return CrateAnimCalc.GetPhaseStart(CrateAnimConfig.Timeline, name) or 0
+end
+
+local function phaseDuration(name: string): number
+	for _, phase in CrateAnimConfig.Timeline do
+		if phase.Name == name then
+			return phase.Duration
+		end
+	end
+	return 1
+end
+
 -- Geometria a partir do terreno (atributos/Attachments gravados pelo servidor)
 local function computeGeometry(userId: number, skyHeight: number): Geometry?
 	local plot = PlotController.GetPlotModel(userId)
@@ -250,18 +332,49 @@ end
 
 -- Teto de nuvens ---------------------------------------------------------------------
 
-local function spawnDeck(folder: Instance, ringCount: number, withMist: boolean): Deck
-	local deck: Deck = { Models = {}, Angles = {}, Radii = {}, Heights = {}, Spin = 0, Open = 0 }
-	for ringIndex = 1, math.min(ringCount, #CIN.CloudRings) do
+local function spawnDeck(folder: Instance, ringCount: number, withMist: boolean, withCeiling: boolean): Deck
+	local deck: Deck = {
+		Models = {},
+		Angles = {},
+		Radii = {},
+		Heights = {},
+		Rings = {},
+		Yaws = {},
+		RingCount = math.min(ringCount, #CIN.CloudRings),
+		Parts = {},
+		Offsets = {},
+		First = {},
+		Last = {},
+		CFrames = {},
+		Plates = {},
+		PlateAngles = {},
+		Spin = 0,
+		Offset = CIN.CloudCloseDistance,
+		Open = 0,
+	}
+	for ringIndex = 1, deck.RingCount do
 		local ring = CIN.CloudRings[ringIndex]
 		for index = 1, ring.Count do
 			local cloud = CinematicAssets.Get("Cloud")
+			cloud:ScaleTo(rng:NextNumber(CIN.CloudScale.Min, CIN.CloudScale.Max))
+			-- Guarda cada peça relativa ao pivot (movidas em bloco no updateDeck)
+			local pivotInverse = cloud:GetPivot():Inverse()
+			table.insert(deck.First, #deck.Parts + 1)
+			for _, descendant in cloud:GetDescendants() do
+				if descendant:IsA("BasePart") then
+					table.insert(deck.Parts, descendant)
+					table.insert(deck.Offsets, pivotInverse * descendant.CFrame)
+				end
+			end
+			table.insert(deck.Last, #deck.Parts)
 			cloud.Parent = folder
 			table.insert(deck.Models, cloud)
+			table.insert(deck.Yaws, rng:NextNumber(0, math.pi * 2))
 			table.insert(deck.Angles, (index / ring.Count) * math.pi * 2 + ringIndex * 0.37 + rng:NextNumber(-0.1, 0.1))
 			table.insert(deck.Radii, ring.Radius + rng:NextNumber(-4, 4))
-			-- Os anéis de fora descem um pouco: o teto curva até ao horizonte
-			table.insert(deck.Heights, -ringIndex * 4 + rng:NextNumber(-4, 4))
+			-- Os anéis de fora descem só um pouco (sem nuvens a espetar para baixo)
+			table.insert(deck.Heights, -ringIndex * 2 + rng:NextNumber(-2, 2))
+			table.insert(deck.Rings, ringIndex)
 			if withMist and #deck.Models % CIN.CloudMistEvery == 0 then
 				local mist = cloud:FindFirstChild("Mist", true)
 				if mist and mist:IsA("ParticleEmitter") then
@@ -271,17 +384,85 @@ local function spawnDeck(folder: Instance, ringCount: number, withMist: boolean)
 			end
 		end
 	end
+	if withCeiling then
+		for index = 1, CEILING.Plates do
+			local plate = CinematicAssets.NewPart(
+				"Ceiling" .. index,
+				Vector3.new(CEILING.Width, CEILING.Thickness, CEILING.Length),
+				CFrame.new(),
+				CEILING.Color,
+				Enum.Material.SmoothPlastic,
+				folder
+			)
+			table.insert(deck.Plates, plate)
+			table.insert(deck.PlateAngles, (index / CEILING.Plates) * math.pi * 2)
+		end
+	end
 	return deck
 end
 
+local function easeInOutSine(t: number): number
+	return -(math.cos(math.pi * t) - 1) / 2
+end
+
+-- Abertura de um anel (0..1): os de dentro começam primeiro
+local function ringOpen(deck: Deck, ring: number): number
+	local delay = CIN.CloudOpenRingDelay * (ring - 1)
+	local span = 1 - CIN.CloudOpenRingDelay * (deck.RingCount - 1)
+	return easeInOutSine(math.clamp((deck.Open - delay) / math.max(span, 0.1), 0, 1))
+end
+
 local function updateDeck(deck: Deck, center: Vector3, dt: number)
-	deck.Spin += CIN.CloudSpin * dt
-	local open = easeOutCubic(math.clamp(deck.Open, 0, 1))
+	-- Redemoinho: acelera a meio da abertura e volta a acalmar
+	deck.Spin += CIN.CloudSpin * dt * (1 + CIN.CloudOpenSwirl * math.sin(math.pi * math.clamp(deck.Open, 0, 1)))
+	local offset = deck.Offset
+	local cframes = deck.CFrames
+	for index in deck.Models do
+		local ring = deck.Rings[index]
+		local open = if deck.Open > 0 then ringOpen(deck, ring) else 0
+		local angle = deck.Angles[index] + deck.Spin * (1 + 0.15 * (deck.RingCount - ring))
+		local radius = deck.Radii[index] + offset
+		local height = deck.Heights[index]
+		-- As nuvens de dentro do círculo vão para a borda exata (buraco redondo e limpo)
+		local rim = CIN.CloudOpenRadius + CIN.CloudRimLayer * (ring - 1)
+		if open > 0 and radius < rim then
+			radius = lerp(radius, rim, open)
+			height = lerp(height, 0, open)
+		end
+		-- Sempre na horizontal (inclinadas pareciam espetadas)
+		local pivot = CFrame.new(center + Vector3.new(math.cos(angle) * radius, height, math.sin(angle) * radius))
+			* CFrame.Angles(0, deck.Yaws[index] - angle, 0)
+		for part = deck.First[index], deck.Last[index] do
+			cframes[part] = pivot * deck.Offsets[part]
+		end
+	end
+	Workspace:BulkMoveTo(deck.Parts, cframes, Enum.BulkMoveMode.FireCFrameChanged)
+	-- O teto cinzento acompanha o fecho; na abertura não se mexe (desaparece: fadeCeiling)
+	local ceilingCenter = center + Vector3.new(0, CEILING.Lift, 0)
+	for index, plate in deck.Plates do
+		local angle = deck.PlateAngles[index] + deck.Spin
+		local direction = Vector3.new(math.cos(angle), 0, math.sin(angle))
+		local position = ceilingCenter + direction * (offset + CEILING.Length / 2)
+		plate.CFrame = CFrame.lookAt(position, position + direction)
+	end
+end
+
+-- Teto cinzento: 0 = visível, 1 = desaparecido (na transição só se veem nuvens)
+local function fadeCeiling(deck: Deck, alpha: number)
+	for _, plate in deck.Plates do
+		plate.Transparency = alpha
+	end
+end
+
+-- Sopro de névoa das nuvens de dentro quando o céu começa a abrir
+local function puffDeck(deck: Deck, rings: number)
 	for index, cloud in deck.Models do
-		local angle = deck.Angles[index] + deck.Spin
-		local radius = deck.Radii[index] + CIN.CloudOpenDistance * open
-		local height = deck.Heights[index] + 8 * open
-		cloud:PivotTo(CFrame.new(center + Vector3.new(math.cos(angle) * radius, height, math.sin(angle) * radius)) * CFrame.Angles(0, -angle, 0))
+		if deck.Rings[index] <= rings then
+			local mist = cloud:FindFirstChild("Mist", true)
+			if mist and mist:IsA("ParticleEmitter") then
+				mist:Emit(3)
+			end
+		end
 	end
 end
 
@@ -295,33 +476,60 @@ local function fadeDeck(deck: Deck, alpha: number)
 			end
 		end
 	end
+	for _, plate in deck.Plates do
+		plate.Transparency = math.max(plate.Transparency, alpha)
+	end
 end
 
 local function destroyDeck(deck: Deck)
 	for _, cloud in deck.Models do
 		cloud:Destroy()
 	end
+	for _, plate in deck.Plates do
+		plate:Destroy()
+	end
 	table.clear(deck.Models)
+	table.clear(deck.Plates)
 end
 
 -- Relâmpagos -----------------------------------------------------------------------
 
+local BOLT_GLOW_TRANSPARENCY = 0.55
+local BOLT_LIFETIME = 0.42
+
 local function makeBolt(folder: Instance): Bolt
-	local segments: { BasePart } = {}
+	local bolt: Bolt = { Core = {}, Glow = {}, Reveal = {}, Used = {}, Shown = {}, Lights = {}, StrikeTime = -math.huge, Active = false }
 	for index = 1, BOLT_SEGMENTS + CIN.BoltBranches * BRANCH_SEGMENTS do
-		local segment = CinematicAssets.NewPart("Bolt" .. index, Vector3.one, CFrame.new(), Color3.fromRGB(225, 232, 255), Enum.Material.Neon, folder)
-		segment.Transparency = 1
-		table.insert(segments, segment)
+		local core = CinematicAssets.NewPart("BoltCore" .. index, Vector3.one, CFrame.new(), Color3.fromRGB(255, 255, 255), Enum.Material.Neon, folder)
+		core.Transparency = 1
+		local glow = CinematicAssets.NewPart("BoltGlow" .. index, Vector3.one, CFrame.new(), Color3.fromRGB(150, 175, 255), Enum.Material.Neon, folder)
+		glow.Transparency = 1
+		table.insert(bolt.Core, core)
+		table.insert(bolt.Glow, glow)
+		table.insert(bolt.Reveal, 0)
+		table.insert(bolt.Used, false)
+		table.insert(bolt.Shown, false)
 	end
-	local light = Instance.new("PointLight")
-	light.Color = Color3.fromRGB(200, 215, 255)
-	light.Range = 60
-	light.Brightness = 0
-	light.Parent = segments[1]
-	return { Segments = segments, Light = light, StrikeTime = -math.huge, Visible = false }
+	for _ = 1, 2 do
+		local light = Instance.new("PointLight")
+		light.Color = Color3.fromRGB(200, 215, 255)
+		light.Range = 60
+		light.Brightness = 0
+		light.Shadows = false
+		light.Parent = bolt.Core[1]
+		table.insert(bolt.Lights, light)
+	end
+	return bolt
 end
 
--- Relâmpago em ziguezague de `from` até `to`, com ramificações
+local function setBoltSegment(bolt: Bolt, slot: number, from: Vector3, to: Vector3, width: number, reveal: number)
+	placeSegment(bolt.Core[slot], from, to, width, width)
+	placeSegment(bolt.Glow[slot], from, to, width * CIN.BoltGlow, width * CIN.BoltGlow)
+	bolt.Reveal[slot] = reveal
+	bolt.Used[slot] = true
+end
+
+-- Relâmpago de `from` até `to`: canal principal em ziguezague + ramificações que saem dele
 local function strike(bolt: Bolt, from: Vector3, to: Vector3)
 	local direction = to - from
 	local length = direction.Magnitude
@@ -331,7 +539,11 @@ local function strike(bolt: Bolt, from: Vector3, to: Vector3)
 	end
 	side = side.Unit
 	local up = side:Cross(direction.Unit)
-	local jitter = length * 0.07
+	local jitter = length * 0.05
+
+	for slot in bolt.Used do
+		bolt.Used[slot] = false
+	end
 
 	local vertices: { Vector3 } = { from }
 	for index = 1, BOLT_SEGMENTS do
@@ -340,37 +552,86 @@ local function strike(bolt: Bolt, from: Vector3, to: Vector3)
 			point += side * rng:NextNumber(-jitter, jitter) + up * rng:NextNumber(-jitter, jitter)
 		end
 		table.insert(vertices, point)
-		placeSegment(bolt.Segments[index], vertices[index], point, CIN.BoltWidth, CIN.BoltWidth)
+		-- O canal afina ligeiramente para baixo
+		local width = CIN.BoltWidth * lerp(1.2, 0.8, index / BOLT_SEGMENTS)
+		setBoltSegment(bolt, index, vertices[index], point, width, (index - 1) / BOLT_SEGMENTS)
 	end
 
 	local slot = BOLT_SEGMENTS
 	for branch = 1, CIN.BoltBranches do
-		local root = vertices[math.clamp(branch * 2, 2, BOLT_SEGMENTS)]
-		local branchDir = (direction.Unit + side * (if branch % 2 == 0 then 0.9 else -0.9)).Unit
+		local rootIndex = rng:NextInteger(2, BOLT_SEGMENTS - 2)
+		local root = vertices[rootIndex]
+		local sign = if branch % 2 == 0 then 1 else -1
+		local branchDir = (direction.Unit + side * sign * rng:NextNumber(0.6, 1.2) + up * rng:NextNumber(-0.4, 0.4)).Unit
+		local branchLength = length * rng:NextNumber(0.2, 0.35)
 		local previous = root
-		for index = 1, BRANCH_SEGMENTS do
-			local point = previous + branchDir * (length * 0.09) + side * rng:NextNumber(-jitter, jitter) * 0.5
+		for step = 1, BRANCH_SEGMENTS do
+			local point = previous + branchDir * (branchLength / BRANCH_SEGMENTS) + side * rng:NextNumber(-jitter, jitter) * 0.5
 			slot += 1
-			placeSegment(bolt.Segments[slot], previous, point, CIN.BoltWidth * 0.55, CIN.BoltWidth * 0.55)
+			local width = CIN.BoltWidth * lerp(0.6, 0.25, step / BRANCH_SEGMENTS)
+			setBoltSegment(bolt, slot, previous, point, width, (rootIndex - 1 + step * 0.6) / BOLT_SEGMENTS)
 			previous = point
 		end
 	end
-	bolt.Light.Parent = bolt.Segments[3]
+	bolt.Lights[1].Parent = bolt.Core[1] -- topo: ilumina as nuvens
+	bolt.Lights[2].Parent = bolt.Core[math.floor(BOLT_SEGMENTS * 0.6)]
 	bolt.StrikeTime = os.clock()
+	bolt.Active = true
 end
 
--- Duplo clarão: 0–0.07 s aceso, 0.07–0.11 apagado, 0.11–0.21 aceso
+-- Desenha-se de cima para baixo em BoltDrawTime; depois 3 clarões a enfraquecer
+local function boltIntensity(age: number): number
+	local draw = CIN.BoltDrawTime
+	if age < draw + 0.12 then
+		return 1
+	elseif age < draw + 0.16 then
+		return 0
+	elseif age < draw + 0.26 then
+		return 0.85
+	elseif age < draw + 0.3 then
+		return 0
+	elseif age < BOLT_LIFETIME then
+		return 0.45
+	end
+	return 0
+end
+
 local function updateBolt(bolt: Bolt, now: number)
-	local age = now - bolt.StrikeTime
-	local visible = age < 0.07 or (age > 0.11 and age < 0.21)
-	if visible == bolt.Visible then
+	if not bolt.Active then
 		return
 	end
-	bolt.Visible = visible
-	bolt.Light.Brightness = if visible then 12 else 0
-	for _, segment in bolt.Segments do
-		segment.Transparency = if visible then 0 else 1
+	local age = now - bolt.StrikeTime
+	local intensity = boltIntensity(age)
+	local drawn = math.clamp(age / CIN.BoltDrawTime, 0, 1)
+	for slot, core in bolt.Core do
+		local show = bolt.Used[slot] and intensity > 0 and drawn >= bolt.Reveal[slot]
+		if show ~= bolt.Shown[slot] then
+			bolt.Shown[slot] = show
+			core.Transparency = if show then 0 else 1
+		end
+		if show then
+			bolt.Glow[slot].Transparency = 1 - (1 - BOLT_GLOW_TRANSPARENCY) * intensity
+		elseif bolt.Glow[slot].Transparency < 1 then
+			bolt.Glow[slot].Transparency = 1
+		end
 	end
+	for _, light in bolt.Lights do
+		light.Brightness = 16 * intensity
+	end
+	if age >= BOLT_LIFETIME then
+		bolt.Active = false
+	end
+end
+
+local function destroyBolt(bolt: Bolt)
+	for _, part in bolt.Core do
+		part:Destroy()
+	end
+	for _, part in bolt.Glow do
+		part:Destroy()
+	end
+	table.clear(bolt.Core)
+	table.clear(bolt.Glow)
 end
 
 -- Pontos de um relâmpago dentro do campo de visão (alterna chão / através do teto)
@@ -386,162 +647,445 @@ local function strikePoints(geo: Geometry, index: number, skyHeight: number): (V
 	return top - dir * 45, top + dir * 45 - Vector3.new(0, rng:NextNumber(0, 8), 0)
 end
 
--- Céu a rachar -----------------------------------------------------------------------
+-- Céu a partir: malha de fragmentos, rachas nas arestas e "outro mundo" ----------------
+--[[
+	O céu da brecha é uma malha de triângulos irregulares (como vidro). Em cada pancada:
+	  1) as arestas à volta acendem-se como rachas, a espalhar-se do ponto de impacto
+	  2) os triângulos perto caem (do centro para fora); no lugar de cada um fica um
+	     triângulo de "outro mundo" com a mesma forma -> buraco angular e partido
+	  3) as arestas entre um triângulo aberto e um fechado brilham na cor da raridade
+	     (contorno da brecha); as de dentro desaparecem
+	Visto do chão: fragmentos (-0.9) > rachas/contorno (-0.6) > outro mundo (-0.4).
+]]
 
-local function makeSkyCrack(folder: Instance, center: Vector3, radius: number, lines: number, rarity: RarityDef): SkyCrack
-	local pane = CinematicAssets.NewPart(
-		"SkyPane",
-		Vector3.new(0.6, radius * 2, radius * 2),
-		CFrame.new(center) * CFrame.Angles(0, 0, math.rad(90)),
-		PANE_COLOR,
-		Enum.Material.Neon,
-		folder
-	)
-	pane.Shape = Enum.PartType.Cylinder
-	pane.Transparency = 1
-	local burst = Instance.new("PointLight")
-	burst.Color = rarity.Color
-	burst.Range = 60
-	burst.Brightness = 0
-	burst.Parent = pane
+local DROP_EDGE = 0.6
+local DROP_VOID = 0.4
+local DROP_SHARD = 0.9
 
-	local crack: SkyCrack = {
-		Pane = pane,
+local EDGE_NONE = 0
+local EDGE_CRACK = 1
+local EDGE_RIM = 2
+local EDGE_HIDDEN = 3
+
+-- Triângulo arbitrário com duas WedgeParts (espessura no eixo X das cunhas)
+local function makeTriangle(a: Vector3, b: Vector3, c: Vector3, color: Color3, material: Enum.Material, parent: Instance): (WedgePart, WedgePart)
+	local ab, ac, bc = b - a, c - a, c - b
+	local abd, acd, bcd = ab:Dot(ab), ac:Dot(ac), bc:Dot(bc)
+	if abd > acd and abd > bcd then
+		c, a = a, c
+	elseif acd > bcd and acd > abd then
+		a, b = b, a
+	end
+	ab, ac, bc = b - a, c - a, c - b
+	local right = ac:Cross(ab).Unit
+	local up = bc:Cross(right).Unit
+	local back = bc.Unit
+	local height = math.abs(ab:Dot(up))
+
+	local function wedge(): WedgePart
+		local part = Instance.new("WedgePart")
+		part.Anchored = true
+		part.CanCollide = false
+		part.CanQuery = false
+		part.CanTouch = false
+		part.CastShadow = false
+		part.Color = color
+		part.Material = material
+		part.TopSurface = Enum.SurfaceType.Smooth
+		part.BottomSurface = Enum.SurfaceType.Smooth
+		part.Parent = parent
+		return part
+	end
+	local w1 = wedge()
+	w1.Size = Vector3.new(0.2, math.max(height, 0.05), math.max(math.abs(ab:Dot(back)), 0.05))
+	w1.CFrame = CFrame.fromMatrix((a + b) / 2, right, up, back)
+	local w2 = wedge()
+	w2.Size = Vector3.new(0.2, math.max(height, 0.05), math.max(math.abs(ac:Dot(back)), 0.05))
+	w2.CFrame = CFrame.fromMatrix((a + c) / 2, -right, up, -back)
+	return w1, w2
+end
+
+-- `axis`: horizontal, perpendicular à câmara
+local function makeBreach(folder: Instance, center: Vector3, axis: Vector3, scale: number, rarity: RarityDef, lowVfx: boolean): Breach
+	local root = Instance.new("Folder")
+	root.Name = "Breach"
+	root.Parent = folder
+
+	local burstAnchor = CinematicAssets.NewPart("BreachBurst", Vector3.one, CFrame.new(center), BLACK, Enum.Material.SmoothPlastic, root)
+	burstAnchor.Transparency = 1
+	-- Pó/estilhaços pequenos a saltar em cada pancada
+	local burst = newEmitter(burstAnchor, Color3.new(1, 1, 1):Lerp(rarity.Color, 0.3))
+	burst.Lifetime = NumberRange.new(0.5, 0.9)
+	burst.Speed = NumberRange.new(12, 28)
+	burst.SpreadAngle = Vector2.new(70, 70)
+	burst.EmissionDirection = Enum.NormalId.Bottom
+	burst.Acceleration = Vector3.new(0, -40, 0)
+	burst.Size = NumberSequence.new(0.7 * scale + 0.2, 0)
+
+	local side = axis:Cross(Vector3.yAxis).Unit
+	local breach: Breach = {
 		Center = center,
-		Radius = radius,
+		Axis = axis,
+		Side = side,
+		Scale = scale,
+		LowVfx = lowVfx,
+		Rarity = rarity,
+		Folder = root,
 		Burst = burst,
-		Segments = {},
-		Starts = {},
-		Ends = {},
-		From = {},
-		To = {},
-		Shattered = false,
-		Shards = {},
-		ShardParts = {},
+		HitLights = {},
+		HitBeams = {},
+		HitStart = {},
+		HitOpened = {},
+		TriHit = {},
+		BurstAnchor = burstAnchor,
+		Points = {},
+		TriA = {},
+		TriB = {},
+		TriC = {},
+		TriCentroid = {},
+		TriJag = {},
+		TriOpenAt = {},
+		TriOpened = {},
+		TriEdges = {},
+		EdgeA = {},
+		EdgeB = {},
+		EdgeTris = {},
+		EdgeState = {},
+		EdgeShowAt = {},
+		EdgeParts = {},
+		HitsDone = 0,
+		Opened = 0,
+		ShardA = {},
+		ShardB = {},
+		OffsetA = {},
+		OffsetB = {},
 		ShardCF = {},
 		ShardVel = {},
 		ShardSpin = {},
-		ShardAge = 0,
+		ShardBorn = {},
+		ShardAlive = {},
 	}
-	local segmentsPerLine = CIN.CrackSegments
-	local mainEnd = 0.85 -- as linhas principais chegam à borda a 85% do crescimento
-	local below = center - Vector3.new(0, 0.45, 0) -- por baixo da janela (vê-se do chão)
 
-	local function addSegment(from: Vector3, to: Vector3, startAt: number, endAt: number)
-		local part = CinematicAssets.NewPart("Crack", Vector3.one, CFrame.new(from), rarity.Color, Enum.Material.Neon, folder)
-		part.Transparency = 1
-		table.insert(crack.Segments, part)
-		table.insert(crack.Starts, from)
-		table.insert(crack.Ends, to)
-		table.insert(crack.From, startAt)
-		table.insert(crack.To, endAt)
+	-- Malha: grelha com pontos desalinhados, cada célula dividida em 2 triângulos
+	local spacing = (if lowVfx then BREACH.GridSpacingLow else BREACH.GridSpacing) * scale
+	local radius = BREACH.GridRadius * scale
+	local cells = math.ceil(radius / spacing)
+	local width = cells * 2 + 1
+	local function pointIndex(i: number, j: number): number
+		return (i + cells) * width + (j + cells) + 1
+	end
+	for i = -cells, cells do
+		for j = -cells, cells do
+			local edge = math.abs(i) == cells or math.abs(j) == cells
+			local u = i * spacing + (if edge then 0 else rng:NextNumber(-0.35, 0.35) * spacing)
+			local v = j * spacing + (if edge then 0 else rng:NextNumber(-0.35, 0.35) * spacing)
+			breach.Points[pointIndex(i, j)] = center + axis * u + side * v
+		end
 	end
 
-	for line = 1, lines do
-		local angle = (line / lines) * math.pi * 2 + rng:NextNumber(-0.25, 0.25)
-		local point = below
-		for step = 1, segmentsPerLine do
-			angle += rng:NextNumber(-0.35, 0.35)
-			local length = radius / segmentsPerLine * rng:NextNumber(0.85, 1.15)
-			local nextPoint = point + Vector3.new(math.cos(angle) * length, 0, math.sin(angle) * length)
-			addSegment(point, nextPoint, (step - 1) / segmentsPerLine * mainEnd, step / segmentsPerLine * mainEnd)
-			if step == 2 then
-				local branchAngle = angle + (if line % 2 == 0 then 0.9 else -0.9)
-				local branchStart = step / segmentsPerLine * mainEnd
-				local branchPoint = nextPoint
-				for branchStep = 1, 2 do
-					local branchNext = branchPoint + Vector3.new(math.cos(branchAngle), 0, math.sin(branchAngle)) * (length * 0.8)
-					addSegment(branchPoint, branchNext, branchStart + (branchStep - 1) * 0.12, branchStart + branchStep * 0.12)
-					branchPoint = branchNext
-					branchAngle += rng:NextNumber(-0.3, 0.3)
+	local edgeIndex: { [string]: number } = {}
+	local function edgeOf(a: number, b: number, tri: number): number
+		local low, high = math.min(a, b), math.max(a, b)
+		local key = low .. "," .. high
+		local index = edgeIndex[key]
+		if not index then
+			table.insert(breach.EdgeA, low)
+			table.insert(breach.EdgeB, high)
+			table.insert(breach.EdgeTris, {})
+			table.insert(breach.EdgeState, EDGE_NONE)
+			table.insert(breach.EdgeShowAt, math.huge)
+			index = #breach.EdgeA
+			edgeIndex[key] = index
+		end
+		table.insert(breach.EdgeTris[index], tri)
+		return index
+	end
+	local function addTri(a: number, b: number, c: number)
+		local centroid = (breach.Points[a] + breach.Points[b] + breach.Points[c]) / 3
+		if (centroid - center).Magnitude > radius then
+			return
+		end
+		table.insert(breach.TriA, a)
+		table.insert(breach.TriB, b)
+		table.insert(breach.TriC, c)
+		table.insert(breach.TriCentroid, centroid)
+		table.insert(breach.TriJag, rng:NextNumber(-1, 1))
+		table.insert(breach.TriOpenAt, math.huge)
+		table.insert(breach.TriOpened, false)
+		table.insert(breach.TriHit, 0)
+		local tri = #breach.TriA
+		table.insert(breach.TriEdges, { edgeOf(a, b, tri), edgeOf(b, c, tri), edgeOf(c, a, tri) })
+	end
+	for i = -cells, cells - 1 do
+		for j = -cells, cells - 1 do
+			local p00, p10, p01, p11 = pointIndex(i, j), pointIndex(i + 1, j), pointIndex(i, j + 1), pointIndex(i + 1, j + 1)
+			if rng:NextNumber() < 0.5 then
+				addTri(p00, p10, p11)
+				addTri(p00, p11, p01)
+			else
+				addTri(p00, p10, p01)
+				addTri(p10, p11, p01)
+			end
+		end
+	end
+	return breach
+end
+
+local function edgeMidpoint(breach: Breach, edge: number): Vector3
+	return (breach.Points[breach.EdgeA[edge]] + breach.Points[breach.EdgeB[edge]]) / 2
+end
+
+-- Cria/atualiza a peça de uma aresta conforme o estado (racha, contorno ou escondida)
+local function setEdgeState(breach: Breach, edge: number, state: number)
+	breach.EdgeState[edge] = state
+	local part = breach.EdgeParts[edge]
+	if state == EDGE_HIDDEN or state == EDGE_NONE then
+		if part then
+			part.Transparency = 1
+		end
+		return
+	end
+	local from = breach.Points[breach.EdgeA[edge]] - Vector3.new(0, DROP_EDGE, 0)
+	local to = breach.Points[breach.EdgeB[edge]] - Vector3.new(0, DROP_EDGE, 0)
+	local edgePart: BasePart = part or CinematicAssets.NewPart("BreachEdge", Vector3.one, CFrame.new(from), BREACH.CrackColor, Enum.Material.Neon, breach.Folder)
+	breach.EdgeParts[edge] = edgePart
+	if state == EDGE_RIM then
+		placeSegment(edgePart, from, to, 0.6 * breach.Scale + 0.2, 0.25)
+		edgePart.Color = breach.Rarity.Color
+	else
+		placeSegment(edgePart, from, to, 0.22 * breach.Scale + 0.08, 0.2)
+		edgePart.Color = BREACH.CrackColor
+	end
+	edgePart.Transparency = 0
+end
+
+-- Depois de um triângulo abrir: as arestas com os dois lados abertos somem; as da borda brilham
+local function refreshTriEdges(breach: Breach, tri: number)
+	for _, edge in breach.TriEdges[tri] do
+		local openSides = 0
+		for _, other in breach.EdgeTris[edge] do
+			if breach.TriOpened[other] then
+				openSides += 1
+			end
+		end
+		local closedSides = #breach.EdgeTris[edge] - openSides
+		setEdgeState(breach, edge, if closedSides == 0 and #breach.EdgeTris[edge] > 1 then EDGE_HIDDEN else EDGE_RIM)
+	end
+end
+
+-- "Outro mundo" num triângulo aberto: estrelas a cintilar e (às vezes) nebulosa a rodar
+local function addOtherWorld(host: BasePart, rarity: RarityDef, withNebula: boolean, scale: number)
+	local stars = Instance.new("ParticleEmitter")
+	stars.Name = "Stars"
+	stars.Shape = Enum.ParticleEmitterShape.Box
+	stars.Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.fromRGB(200, 170, 255))
+	stars.LightEmission = 1
+	stars.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(0.5, 0.4 * scale + 0.15), NumberSequenceKeypoint.new(1, 0) })
+	stars.Lifetime = NumberRange.new(1, 2)
+	stars.Speed = NumberRange.new(0, 0.2)
+	stars.Rate = 6
+	stars.Parent = host
+	stars:Emit(3)
+	if withNebula then
+		local nebula = Instance.new("ParticleEmitter")
+		nebula.Name = "Nebula"
+		nebula.Shape = Enum.ParticleEmitterShape.Box
+		nebula.Texture = "rbxasset://textures/particles/smoke_main.dds"
+		nebula.Color = ColorSequence.new(rarity.Color, BREACH.WorldTint)
+		nebula.LightEmission = 0.8
+		nebula.Size = NumberSequence.new(6 * scale + 2, 10 * scale + 3)
+		nebula.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.4, 0.72), NumberSequenceKeypoint.new(1, 1) })
+		nebula.Lifetime = NumberRange.new(2, 3)
+		nebula.Speed = NumberRange.new(0.2, 0.6)
+		nebula.RotSpeed = NumberRange.new(-30, 30)
+		nebula.Rate = 2
+		nebula.Parent = host
+		nebula:Emit(1)
+	end
+end
+
+-- Um triângulo cai: fica o outro mundo no lugar e o fragmento de céu cai a rodar
+local function openTri(breach: Breach, tri: number, now: number)
+	breach.TriOpened[tri] = true
+	breach.Opened += 1
+	local hit = breach.TriHit[tri]
+	if hit > 0 then
+		breach.HitOpened[hit] += 1
+	end
+	local a = breach.Points[breach.TriA[tri]]
+	local b = breach.Points[breach.TriB[tri]]
+	local c = breach.Points[breach.TriC[tri]]
+	local voidDrop = Vector3.new(0, DROP_VOID, 0)
+	local voidColor = BREACH.VoidColors[rng:NextInteger(1, #BREACH.VoidColors)]
+	local v1, _v2 = makeTriangle(a - voidDrop, b - voidDrop, c - voidDrop, voidColor, Enum.Material.Neon, breach.Folder)
+	if not breach.LowVfx and breach.Opened % BREACH.StarsEvery == 0 then
+		addOtherWorld(v1, breach.Rarity, breach.Opened % BREACH.NebulaEvery == 0, breach.Scale)
+	end
+
+	-- Fragmento a cair (as duas cunhas movem-se juntas à volta do centro do triângulo)
+	local shardDrop = Vector3.new(0, DROP_SHARD, 0)
+	local s1, s2 = makeTriangle(a - shardDrop, b - shardDrop, c - shardDrop, BREACH.ShardColor, Enum.Material.SmoothPlastic, breach.Folder)
+	local centroid = breach.TriCentroid[tri] - shardDrop
+	local pivot = CFrame.new(centroid)
+	local outward = centroid - breach.Center
+	local flat = Vector3.new(outward.X, 0, outward.Z)
+	local direction = if flat.Magnitude > 0.01 then flat.Unit else breach.Axis
+	table.insert(breach.ShardA, s1)
+	table.insert(breach.ShardB, s2)
+	table.insert(breach.OffsetA, pivot:Inverse() * s1.CFrame)
+	table.insert(breach.OffsetB, pivot:Inverse() * s2.CFrame)
+	table.insert(breach.ShardCF, pivot)
+	table.insert(breach.ShardVel, direction * BREACH.ShardSpeed * rng:NextNumber(0.15, 0.6) * breach.Scale - Vector3.new(0, rng:NextNumber(6, 18), 0))
+	table.insert(breach.ShardSpin, rng:NextNumber(-5, 5))
+	table.insert(breach.ShardBorn, now)
+	table.insert(breach.ShardAlive, true)
+
+	refreshTriEdges(breach, tri)
+end
+
+-- Luz e feixe da pancada `index`, no ponto onde o céu partiu (acendem quando caem os
+-- primeiros fragmentos dessa pancada)
+local function addHitLight(breach: Breach, index: number, point: Vector3, now: number)
+	local anchor = CinematicAssets.NewPart("HitLight" .. index, Vector3.one, CFrame.new(point - Vector3.new(0, DROP_SHARD + 1, 0)), BLACK, Enum.Material.SmoothPlastic, breach.Folder)
+	anchor.Transparency = 1
+	local light = Instance.new("PointLight")
+	light.Color = breach.Rarity.Color:Lerp(BREACH.WorldTint, 0.5)
+	light.Range = BREACH.HitLightRange * math.max(breach.Scale, 0.6)
+	light.Brightness = 0
+	light.Shadows = false
+	light.Parent = anchor
+	breach.HitLights[index] = light
+	breach.HitStart[index] = now
+	breach.HitOpened[index] = 0
+	if not breach.LowVfx and index <= BREACH.Beams then
+		local top = point - Vector3.new(0, DROP_VOID + 0.2, 0)
+		local bottom = top - Vector3.new(rng:NextNumber(-8, 8), BREACH.BeamLength * breach.Scale, rng:NextNumber(-8, 8))
+		local beam = CinematicAssets.NewPart("HitBeam" .. index, Vector3.one, CFrame.new(top), breach.Rarity.Color:Lerp(BREACH.WorldTint, 0.4), Enum.Material.Neon, breach.Folder)
+		local width = (3 + 3 * BREACH.Hits[index].Size) * breach.Scale
+		placeSegment(beam, top, bottom, width, width)
+		beam.Transparency = 1
+		breach.HitBeams[index] = beam
+	end
+end
+
+-- Dá a pancada `index` de BREACH.Hits: rachas nas arestas + fragmentos a cair
+local function hitBreach(breach: Breach, index: number, now: number)
+	local hit = BREACH.Hits[index]
+	local spread = BREACH.Spread * breach.Scale
+	local point = breach.Center + breach.Axis * (hit.X * spread) + breach.Side * (hit.Y * spread)
+	local crackRadius = BREACH.CrackRadius * hit.Size * breach.Scale
+	local patchRadius = BREACH.PatchRadius * hit.Size * breach.Scale
+
+	for edge, state in breach.EdgeState do
+		if state == EDGE_NONE then
+			local distance = (edgeMidpoint(breach, edge) - point).Magnitude
+			if distance <= crackRadius * rng:NextNumber(0.75, 1) then
+				breach.EdgeShowAt[edge] = math.min(breach.EdgeShowAt[edge], now + distance / crackRadius * BREACH.CrackGrowTime)
+			end
+		end
+	end
+	for tri, opened in breach.TriOpened do
+		if not opened then
+			local distance = (breach.TriCentroid[tri] - point).Magnitude
+			local reach = patchRadius * (1 + BREACH.Jagged * breach.TriJag[tri])
+			if distance <= reach then
+				local openAt = now + distance / math.max(reach, 0.1) * BREACH.PatchOpenTime
+				if openAt < breach.TriOpenAt[tri] then
+					breach.TriOpenAt[tri] = openAt
+					breach.TriHit[tri] = index
 				end
 			end
-			point = nextPoint
 		end
 	end
-	return crack
+
+	breach.BurstAnchor.CFrame = CFrame.new(point - Vector3.new(0, DROP_SHARD, 0))
+	breach.Burst:Emit(if breach.LowVfx then 6 else math.floor(10 + 10 * hit.Size))
+	addHitLight(breach, index, point, now)
+	breach.HitsDone = index
 end
 
--- Crescimento das rachas (0..1)
-local function growCrack(crack: SkyCrack, progress: number)
-	for index, part in crack.Segments do
-		local span = crack.To[index] - crack.From[index]
-		local partial = math.clamp((progress - crack.From[index]) / math.max(span, 0.001), 0, 1)
-		if partial <= 0 then
-			part.Transparency = 1
-		else
-			local from = crack.Starts[index]
-			local to = from:Lerp(crack.Ends[index], partial)
-			placeSegment(part, from, to, 0.9, 0.3)
-			part.Transparency = 0
+-- Todas as pancadas que faltam, de uma vez (se a fase for saltada/encurtada)
+local function finishBreach(breach: Breach, now: number)
+	for index = breach.HitsDone + 1, #BREACH.Hits do
+		hitBreach(breach, index, now - BREACH.PatchOpenTime)
+	end
+	for tri, openAt in breach.TriOpenAt do
+		if not breach.TriOpened[tri] and openAt < math.huge then
+			openTri(breach, tri, now)
 		end
 	end
-	crack.Burst.Brightness = progress * 4
 end
 
-local function shatterCrack(crack: SkyCrack, folder: Instance, shardCount: number)
-	if crack.Shattered then
-		return
-	end
-	crack.Shattered = true
-	crack.Pane.Transparency = 1
-	for _, part in crack.Segments do
-		part.Transparency = 1
-	end
-	crack.Burst.Brightness = 12
-	for _ = 1, shardCount do
-		local shard = CinematicAssets.Get("SkyShard")
-		local distance = math.sqrt(rng:NextNumber()) * crack.Radius
-		local angle = rng:NextNumber(0, math.pi * 2)
-		local position = crack.Center + Vector3.new(math.cos(angle) * distance, 0, math.sin(angle) * distance)
-		local cframe = CFrame.new(position) * CFrame.Angles(rng:NextNumber(-0.3, 0.3), rng:NextNumber(0, 6), rng:NextNumber(-0.3, 0.3))
-		shard:ScaleTo(rng:NextNumber(0.6, 1.5))
-		shard:PivotTo(cframe)
-		shard.Parent = folder
-		local outward = Vector3.new(math.cos(angle), 0, math.sin(angle))
-		table.insert(crack.Shards, shard)
-		local visual: BasePart? = nil
-		for _, descendant in shard:GetDescendants() do
-			if descendant:IsA("BasePart") and descendant ~= shard.PrimaryPart then
-				visual = descendant
-				break
+local function updateBreach(breach: Breach, now: number, dt: number)
+	-- Rachas a espalharem-se
+	for edge, showAt in breach.EdgeShowAt do
+		if showAt <= now then
+			breach.EdgeShowAt[edge] = math.huge
+			if breach.EdgeState[edge] == EDGE_NONE then
+				setEdgeState(breach, edge, EDGE_CRACK)
 			end
 		end
-		table.insert(crack.ShardParts, visual or (shard.PrimaryPart :: BasePart))
-		table.insert(crack.ShardCF, cframe)
-		table.insert(crack.ShardVel, outward * CIN.ShardSpeed * rng:NextNumber(0.4, 1) - Vector3.new(0, rng:NextNumber(5, 25), 0))
-		table.insert(crack.ShardSpin, rng:NextNumber(-5, 5))
+	end
+	-- Fragmentos a cair (do centro de cada pancada para fora)
+	for tri, openAt in breach.TriOpenAt do
+		if openAt <= now and not breach.TriOpened[tri] then
+			breach.TriOpenAt[tri] = math.huge
+			openTri(breach, tri, now)
+		end
+	end
+	-- Luz de cada pancada: acende forte quando os seus fragmentos caem, depois fica a
+	-- brilhar (mais quanto maior o buraco que abriu) e tremeluz
+	for index, light in breach.HitLights do
+		local opened = breach.HitOpened[index]
+		local beam = breach.HitBeams[index]
+		if opened > 0 then
+			local age = now - breach.HitStart[index]
+			local flareFactor = math.max(0, 1 - age / 0.7)
+			local glow = math.min(BREACH.HitLightGlow + opened * 0.08, 6)
+			local flicker = 0.8 + 0.2 * math.noise(now * 7, index * 3.1)
+			light.Brightness = math.max(glow * flicker, BREACH.HitLightFlare * flareFactor)
+			if beam then
+				-- Mais forte no momento da quebra, depois fica suave a tremeluzir
+				beam.Transparency = math.min(0.84 + 0.06 * math.noise(now * 2, index), 1 - 0.45 * flareFactor)
+			end
+		else
+			light.Brightness = 0
+			if beam then
+				beam.Transparency = 1
+			end
+		end
+	end
+	for index, alive in breach.ShardAlive do
+		if alive then
+			local age = now - breach.ShardBorn[index]
+			if age >= BREACH.ShardLifetime then
+				breach.ShardAlive[index] = false
+				breach.ShardA[index]:Destroy()
+				breach.ShardB[index]:Destroy()
+			else
+				local velocity = breach.ShardVel[index] - Vector3.new(0, 45 * dt, 0)
+				breach.ShardVel[index] = velocity
+				local spin = breach.ShardSpin[index] * dt
+				local cframe = (breach.ShardCF[index] + velocity * dt) * CFrame.Angles(spin, spin * 0.7, spin * 0.4)
+				breach.ShardCF[index] = cframe
+				local fade = age / BREACH.ShardLifetime
+				local partA, partB = breach.ShardA[index], breach.ShardB[index]
+				partA.CFrame = cframe * breach.OffsetA[index]
+				partB.CFrame = cframe * breach.OffsetB[index]
+				partA.Transparency = fade
+				partB.Transparency = fade
+			end
+		end
 	end
 end
 
-local function updateShards(crack: SkyCrack, dt: number)
-	if not crack.Shattered then
-		return
-	end
-	crack.ShardAge += dt
-	crack.Burst.Brightness = math.max(0, crack.Burst.Brightness - dt * 10)
-	local fade = math.clamp(crack.ShardAge / 2.5, 0, 1)
-	for index, shard in crack.Shards do
-		local velocity = crack.ShardVel[index] - Vector3.new(0, 50 * dt, 0)
-		crack.ShardVel[index] = velocity
-		local spin = crack.ShardSpin[index] * dt
-		local cframe = (crack.ShardCF[index] + velocity * dt) * CFrame.Angles(spin, spin * 0.7, 0)
-		crack.ShardCF[index] = cframe
-		shard:PivotTo(cframe)
-		crack.ShardParts[index].Transparency = 0.2 + 0.8 * fade
-	end
-end
-
-local function destroyCrack(crack: SkyCrack)
-	crack.Pane:Destroy()
-	for _, part in crack.Segments do
-		part:Destroy()
-	end
-	for _, shard in crack.Shards do
-		shard:Destroy()
-	end
-	table.clear(crack.Segments)
-	table.clear(crack.Shards)
+local function destroyBreach(breach: Breach)
+	breach.Folder:Destroy()
+	table.clear(breach.EdgeParts)
+	table.clear(breach.ShardA)
+	table.clear(breach.ShardB)
+	table.clear(breach.HitLights)
+	table.clear(breach.HitBeams)
 end
 
 -- Artista ------------------------------------------------------------------------
@@ -554,7 +1098,7 @@ local function makeSilhouette(folder: Instance, artistId: string, rarity: Rarity
 			table.insert(silhouette.Parts, descendant)
 			table.insert(silhouette.Colors, descendant.Color)
 			table.insert(silhouette.Materials, descendant.Material)
-			descendant.Color = Color3.new(0, 0, 0)
+			descendant.Color = BLACK
 			descendant.Material = Enum.Material.SmoothPlastic
 		elseif descendant:IsA("Decal") then
 			descendant.Transparency = 1 -- Texture herda de Decal
@@ -584,9 +1128,8 @@ end
 
 -- Silhueta preta -> cores reais (0..1)
 local function colorSilhouette(silhouette: Silhouette, t: number)
-	local black = Color3.new(0, 0, 0)
 	for index, part in silhouette.Parts do
-		part.Color = black:Lerp(silhouette.Colors[index], t)
+		part.Color = BLACK:Lerp(silhouette.Colors[index], t)
 		if t >= 1 then
 			part.Material = silhouette.Materials[index]
 		end
@@ -698,6 +1241,7 @@ end
 local LIGHTING_PROPS = { "ClockTime", "Brightness", "Ambient", "OutdoorAmbient", "ExposureCompensation", "FogStart", "FogEnd", "FogColor" }
 local ATMOSPHERE_PROPS = { "Density", "Offset", "Color", "Decay", "Glare", "Haze" }
 local CLOUDS_PROPS = { "Cover", "Density", "Color", "Enabled" }
+local SKY_PROPS = { "CelestialBodiesShown" }
 
 local function readProps(instance: Instance, names: { string }): { [string]: unknown }
 	local values: { [string]: unknown } = {}
@@ -737,9 +1281,29 @@ local function saveState(): SavedState
 		clouds.Density = 0
 		clouds.Parent = terrain
 	end
+	local existingSky = Lighting:FindFirstChildOfClass("Sky")
+	local skyCreated = existingSky == nil
+	local sky: Sky = existingSky or Instance.new("Sky")
+	if skyCreated then
+		sky.Name = FOLDER_NAME .. "_Sky"
+		sky.Parent = Lighting
+	end
 	local character = Players.LocalPlayer.Character
 	local humanoid = if character then character:FindFirstChildOfClass("Humanoid") else nil
+	local coreGuis: { [Enum.CoreGuiType]: boolean } = {}
+	for _, item in Enum.CoreGuiType:GetEnumItems() do
+		if item ~= Enum.CoreGuiType.All then
+			local ok, enabled = pcall(function(): boolean
+				return StarterGui:GetCoreGuiEnabled(item)
+			end)
+			if ok then
+				coreGuis[item] = enabled
+			end
+		end
+	end
 	return {
+		HiddenGuis = {},
+		CoreGuis = coreGuis,
 		Lighting = readProps(Lighting, LIGHTING_PROPS),
 		Atmosphere = atmo,
 		AtmosphereCreated = atmosphereCreated,
@@ -747,6 +1311,9 @@ local function saveState(): SavedState
 		Clouds = clouds,
 		CloudsCreated = cloudsCreated,
 		CloudsProps = readProps(clouds, CLOUDS_PROPS),
+		Sky = sky,
+		SkyCreated = skyCreated,
+		SkyProps = readProps(sky, SKY_PROPS),
 		CameraType = camera.CameraType,
 		CameraSubject = camera.CameraSubject,
 		FieldOfView = camera.FieldOfView,
@@ -766,7 +1333,7 @@ end
 local function goalsFrom(values: { [string]: unknown }): { [string]: any }
 	local goals: { [string]: any } = {}
 	for name, value in values do
-		if name ~= "Enabled" then
+		if type(value) ~= "boolean" then
 			goals[name] = value
 		end
 	end
@@ -794,6 +1361,11 @@ local function restore(session: Session)
 	elseif saved.Clouds.Parent then
 		writeProps(saved.Clouds, saved.CloudsProps)
 	end
+	if saved.SkyCreated then
+		saved.Sky:Destroy()
+	elseif saved.Sky.Parent then
+		writeProps(saved.Sky, saved.SkyProps)
+	end
 	for _, effect in session.Effects do
 		effect:Destroy()
 	end
@@ -814,6 +1386,36 @@ local function restore(session: Session)
 		frozen.JumpHeight = saved.JumpHeight
 	end
 	AudioController.SetMusicMuted(false)
+
+	-- Volta a interface do jogo
+	for _, gui in saved.HiddenGuis do
+		if gui.Parent then
+			gui.Enabled = true
+		end
+	end
+	table.clear(saved.HiddenGuis)
+	for item, enabled in saved.CoreGuis do
+		pcall(function()
+			StarterGui:SetCoreGuiEnabled(item, enabled)
+		end)
+	end
+end
+
+-- Esconde toda a interface do jogo (menos a camada da cinemática)
+local function hideInterface(session: Session)
+	local playerGui = Players.LocalPlayer:FindFirstChildOfClass("PlayerGui")
+	local keep = overlay and overlay.Gui
+	if playerGui then
+		for _, gui in playerGui:GetChildren() do
+			if gui:IsA("ScreenGui") and gui.Enabled and gui ~= keep then
+				gui.Enabled = false
+				table.insert(session.Saved.HiddenGuis, gui)
+			end
+		end
+	end
+	pcall(function()
+		StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.All, false)
+	end)
 end
 
 local function finish(session: Session, completed: boolean)
@@ -852,14 +1454,37 @@ local function shake(session: Session, magnitude: number, duration: number)
 	session.ShakeUntil = os.clock() + duration
 end
 
-local function setCamera(session: Session, position: Vector3, lookAt: Vector3, fov: number)
-	local camera = Workspace.CurrentCamera
-	local offset = shakeOffset(session)
-	camera.CFrame = CFrame.lookAt(position + offset, lookAt + offset * 0.5)
-	camera.FieldOfView = fov
+-- Plano da câmara: posição num círculo à volta do ponto de aterragem.
+-- angle 0 = lado direito, -π/2 = lado da praça (de onde o jogador chega), +π/2 = palco
+local SHOT_FRONT = -math.pi / 2
+
+local function shotPosition(geo: Geometry, angle: number, radius: number, height: number): Vector3
+	return geo.Landing + (geo.Right * math.cos(angle) + geo.Forward * math.sin(angle)) * radius + Vector3.new(0, height, 0)
 end
 
--- Clarão de relâmpago/estilhaço: ilumina a imagem toda (ColorCorrection) + flash leve
+-- `roll`: inclinação lateral do plano (rad). Mistura suavemente a partir do plano anterior
+-- durante CameraBlend[fase] s e aplica tremor e "zoom" das pancadas.
+local function setCamera(session: Session, position: Vector3, lookAt: Vector3, fov: number, roll: number?)
+	local camera = Workspace.CurrentCamera
+	local offset = shakeOffset(session)
+	local target = CFrame.lookAt(position + offset, lookAt + offset * 0.5)
+	if roll then
+		target *= CFrame.Angles(0, 0, roll)
+	end
+	local blendFrom = session.BlendFrom
+	if blendFrom and session.BlendTime > 0 then
+		local blend = math.clamp((os.clock() - session.BlendStart) / session.BlendTime, 0, 1)
+		if blend < 1 then
+			target = blendFrom:Lerp(target, easeInOutSine(blend))
+		else
+			session.BlendFrom = nil
+		end
+	end
+	camera.CFrame = target
+	camera.FieldOfView = fov - session.FovKick
+end
+
+-- Clarão de relâmpago/racha: ilumina a imagem toda (ColorCorrection) + flash leve
 local function lightningFlash(session: Session, strength: number)
 	local grading = session.Grading
 	if grading then
@@ -895,32 +1520,27 @@ local function ensureSilhouette(session: Session): Silhouette
 	return silhouette
 end
 
-local function ensureCrack(session: Session): SkyCrack
-	local existing = session.Crack
+local function ensureBreach(session: Session): Breach
+	local existing = session.Breach
 	if existing then
 		return existing
 	end
-	local lines = if session.Params.LowVfx then CIN.CrackLinesLow else CIN.CrackLines
-	local crack = makeSkyCrack(session.Folder, session.PanePos, CIN.PaneRadius, lines, session.Rarity)
-	session.Crack = crack
-	return crack
+	local breach = makeBreach(session.Folder, session.BreachPos, session.Geo.Right, 1, session.Rarity, session.Params.LowVfx)
+	session.Breach = breach
+	return breach
 end
 
--- Remove tempestade, céu e rachas (Saltar / fim da revelação)
+-- Remove tempestade, céu e racha (Saltar / fim da revelação)
 local function clearSky(session: Session)
 	local deck = session.Deck
 	if deck then
 		destroyDeck(deck)
 		session.Deck = nil
 	end
-	for _, ray in session.Rays do
-		ray:Destroy()
-	end
-	table.clear(session.Rays)
-	local crack = session.Crack
-	if crack then
-		destroyCrack(crack)
-		session.Crack = nil
+	local breach = session.Breach
+	if breach then
+		destroyBreach(breach)
+		session.Breach = nil
 	end
 	local rain = session.Rain
 	if rain then
@@ -928,9 +1548,7 @@ local function clearSky(session: Session)
 		session.Rain = nil
 	end
 	for _, bolt in session.Bolts do
-		for _, segment in bolt.Segments do
-			segment:Destroy()
-		end
+		destroyBolt(bolt)
 	end
 	table.clear(session.Bolts)
 end
@@ -952,6 +1570,10 @@ ENTER.Fade = function(session: Session)
 		o.SetFade(1, session.Phases[1].Duration * 0.9)
 	end)
 	AudioController.SetMusicMuted(true)
+	hideInterface(session)
+	if CIN.HideSun then
+		session.Saved.Sky.CelestialBodiesShown = false
+	end
 	local humanoid = session.Saved.Humanoid
 	if humanoid then
 		humanoid.WalkSpeed = 0
@@ -963,7 +1585,9 @@ end
 ENTER.Storm = function(session: Session)
 	takeControl(session)
 	local low = session.Params.LowVfx
-	session.Deck = spawnDeck(session.Folder, if low then CIN.CloudRingsLow else #CIN.CloudRings, not low)
+	local deck = spawnDeck(session.Folder, if low then CIN.CloudRingsLow else #CIN.CloudRings, not low, true)
+	deck.Offset = CIN.CloudCloseDistance -- começam longe: o céu ainda está azul
+	session.Deck = deck
 	for _ = 1, CIN.BoltPool do
 		table.insert(session.Bolts, makeBolt(session.Folder))
 	end
@@ -982,17 +1606,18 @@ ENTER.Storm = function(session: Session)
 	drops.Transparency = NumberSequence.new(0.35)
 	session.Rain = rain
 
+	-- Tempestade cinzenta (não noite): a luz baixa um pouco enquanto as nuvens fecham
 	local saved = session.Saved
-	tweenTo(session, Lighting, 1.2, {
-		ClockTime = 0.5,
-		Brightness = 0.6,
-		Ambient = Color3.fromRGB(25, 25, 40),
-		OutdoorAmbient = Color3.fromRGB(35, 35, 55),
-		ExposureCompensation = -0.4,
+	local closeTime = CIN.CloudCloseTime
+	tweenTo(session, Lighting, closeTime, {
+		Brightness = 1.2,
+		Ambient = Color3.fromRGB(80, 80, 90),
+		OutdoorAmbient = Color3.fromRGB(100, 100, 110),
+		ExposureCompensation = -0.2,
 	})
-	tweenTo(session, saved.Atmosphere, 1.2, { Density = 0.45, Haze = 3, Color = Color3.fromRGB(60, 62, 75), Glare = 0 })
+	tweenTo(session, saved.Atmosphere, closeTime, { Density = 0.35, Haze = 2, Color = Color3.fromRGB(150, 150, 160), Glare = 0 })
 	saved.Clouds.Enabled = true
-	tweenTo(session, saved.Clouds, 1, {
+	tweenTo(session, saved.Clouds, closeTime, {
 		Cover = CIN.TerrainClouds.Cover,
 		Density = CIN.TerrainClouds.Density,
 		Color = CIN.TerrainClouds.Color,
@@ -1000,57 +1625,65 @@ ENTER.Storm = function(session: Session)
 	local grading = Instance.new("ColorCorrectionEffect")
 	trackEffect(session, grading)
 	session.Grading = grading
-	tweenTo(session, grading, 1.2, { Saturation = -0.55, Contrast = 0.2, TintColor = Color3.fromRGB(200, 210, 255) })
+	tweenTo(session, grading, closeTime, { Saturation = -0.35, Contrast = 0.1, TintColor = Color3.fromRGB(225, 228, 240) })
 end
 
 ENTER.SkyOpen = function(session: Session)
 	takeControl(session)
-	local count = if session.Params.LowVfx then 3 else 6
-	for index = 1, count do
-		local angle = (index / count) * math.pi * 2
-		local bottom = session.Geo.Landing + Vector3.new(math.cos(angle) * 14, 0, math.sin(angle) * 14)
-		local top = session.PanePos + Vector3.new(math.cos(angle) * 6, 0, math.sin(angle) * 6)
-		local length = (top - bottom).Magnitude
-		local ray = CinematicAssets.NewPart("SunRay" .. index, Vector3.new(4, 4, length), CFrame.lookAt((top + bottom) / 2, bottom), Color3.fromRGB(255, 214, 120), Enum.Material.Neon, session.Folder)
-		ray.Transparency = 1
-		table.insert(session.Rays, ray)
-		tweenTo(session, ray, 1.2, { Transparency = 0.65 })
-	end
-	local sunRays = Instance.new("SunRaysEffect")
-	sunRays.Intensity = 0
-	sunRays.Spread = 0.6
-	trackEffect(session, sunRays)
-	tweenTo(session, sunRays, 1.2, { Intensity = 0.25 })
-	local bloom = Instance.new("BloomEffect")
-	trackEffect(session, bloom)
-	bloom.Intensity = 0
-	bloom.Size = 30
-	bloom.Threshold = 0.85
-	tweenTo(session, bloom, 1.2, { Intensity = 1 })
+	-- Volta o céu azul normal (o sol continua escondido)
+	local saved = session.Saved
+	local time = phaseDuration("SkyOpen")
+	tweenTo(session, Lighting, time, goalsFrom(saved.Lighting))
+	tweenTo(session, saved.Atmosphere, time, goalsFrom(saved.AtmosphereProps))
+	tweenTo(session, saved.Clouds, time, { Cover = 0, Density = 0 })
 	local grading = session.Grading
 	if grading then
-		tweenTo(session, grading, 1.4, { TintColor = Color3.fromRGB(255, 235, 200), Saturation = -0.2 })
+		tweenTo(session, grading, time, { Saturation = 0, Contrast = 0, TintColor = Color3.new(1, 1, 1) })
 	end
-	-- A "janela" de céu luminosa aparece no buraco das nuvens
-	local crack = ensureCrack(session)
-	tweenTo(session, crack.Pane, 1.4, { Transparency = 0.45 })
+	local rain = session.Rain
+	if rain then
+		local drops = rain:FindFirstChildOfClass("ParticleEmitter")
+		if drops then
+			drops.Rate = 0
+		end
+	end
+	local deck = session.Deck
+	if deck then
+		puffDeck(deck, 2)
+	end
 end
 
 ENTER.Rift = function(session: Session)
 	takeControl(session)
-	local crack = ensureCrack(session)
-	crack.Pane.Transparency = math.min(crack.Pane.Transparency, 0.45)
+	ensureBreach(session)
 	CrateSfx.Play("RiftOpen")
+	-- A luz do outro mundo invade a cena enquanto o céu parte
+	local time = phaseDuration("Rift")
+	local tint = BREACH.WorldTint
+	local grading = session.Grading
+	if grading then
+		tweenTo(session, grading, time, { TintColor = Color3.new(1, 1, 1):Lerp(tint, 0.3), Saturation = 0.1, Contrast = 0.15 })
+	end
+	tweenTo(session, Lighting, time, {
+		Ambient = Color3.fromRGB(60, 50, 80):Lerp(tint, 0.3),
+		OutdoorAmbient = Color3.fromRGB(90, 80, 110):Lerp(tint, 0.3),
+		ExposureCompensation = -0.15,
+	})
+	tweenTo(session, session.Saved.Atmosphere, time, { Density = 0.25, Haze = 1.5, Color = Color3.fromRGB(150, 150, 170):Lerp(tint, 0.4) })
+	local bloom = Instance.new("BloomEffect")
+	bloom.Intensity = 0
+	bloom.Size = 24
+	bloom.Threshold = 0.9
+	trackEffect(session, bloom)
+	tweenTo(session, bloom, time, { Intensity = 0.7 })
+	lightningFlash(session, 0.8)
 end
 
 ENTER.Leap = function(session: Session)
 	takeControl(session)
-	local crack = session.Crack
-	if crack and not crack.Shattered then
-		shatterCrack(crack, session.Folder, if session.Params.LowVfx then CIN.ShardCountLow else CIN.ShardCount)
-	end
+	finishBreach(ensureBreach(session), os.clock()) -- pancadas que faltem (fase encurtada)
 	local silhouette = ensureSilhouette(session)
-	placeRig(silhouette, session.PanePos, session.Geo.CamBase)
+	placeRig(silhouette, session.BreachPos, session.Geo.CamBase)
 end
 
 ENTER.Impact = function(session: Session)
@@ -1072,8 +1705,7 @@ ENTER.Reveal = function(session: Session)
 	session.ColorStart = os.clock()
 	addAura(silhouette, session.Rarity, session.Params.LowVfx)
 	CrateSfx.Play("RevealSting")
-	local toCamera = session.Geo.CamBase - session.Geo.Landing
-	session.OrbitBase = math.atan2(toCamera.Z, toCamera.X)
+	session.OrbitBase = SHOT_FRONT + 1.1 -- continua do plano da aterragem
 	withOverlay(function(o)
 		o.ShowTitle(session.ArtistName, session.Rarity)
 		o.SetSkipVisible(false)
@@ -1081,12 +1713,16 @@ ENTER.Reveal = function(session: Session)
 	-- O céu limpa e a iluminação volta ao normal durante a revelação
 	local deck = session.Deck
 	if deck then
-		fadeDeck(deck, 0.5)
+		fadeDeck(deck, 0.6)
 	end
 	local saved = session.Saved
 	tweenTo(session, Lighting, 1.8, goalsFrom(saved.Lighting))
 	tweenTo(session, saved.Atmosphere, 1.8, goalsFrom(saved.AtmosphereProps))
 	tweenTo(session, saved.Clouds, 1.8, goalsFrom(saved.CloudsProps))
+	local grading = session.Grading
+	if grading then
+		tweenTo(session, grading, 1.8, { TintColor = Color3.new(1, 1, 1), Saturation = 0, Contrast = 0 })
+	end
 end
 
 ENTER.End = function(session: Session)
@@ -1103,6 +1739,11 @@ UPDATE.Fade = function(_session: Session, _t: number, _alpha: number, _dt: numbe
 
 UPDATE.Storm = function(session: Session, t: number, _alpha: number, _dt: number)
 	local geo = session.Geo
+	-- As nuvens fecham o céu
+	local deck = session.Deck
+	if deck then
+		deck.Offset = CIN.CloudCloseDistance * (1 - easeOutCubic(math.clamp(t / CIN.CloudCloseTime, 0, 1)))
+	end
 	for index, time in CIN.LightningTimes do
 		if not session.Strikes[index] and t >= time then
 			session.Strikes[index] = true
@@ -1120,48 +1761,56 @@ UPDATE.Storm = function(session: Session, t: number, _alpha: number, _dt: number
 			end)
 		end
 	end
-	local sway = geo.Right * math.sin(t * 0.4) * 2
-	setCamera(session, geo.CamBase + sway, geo.Sky, CIN.FovStart)
+	-- Plano 1: grande plano baixo, a rodar devagar à volta do terreno a olhar para o céu
+	local e = easeInOutSine(math.clamp(t / phaseDuration("Storm"), 0, 1))
+	local position = shotPosition(geo, SHOT_FRONT - 0.5 + 0.3 * e, 32, 3 + 3 * e)
+	setCamera(session, position, geo.Sky + geo.Forward * 10, CIN.FovStart + 5, 0.04 * math.sin(t * 0.7))
 end
 
-UPDATE.SkyOpen = function(session: Session, _t: number, alpha: number, _dt: number)
+UPDATE.SkyOpen = function(session: Session, t: number, alpha: number, _dt: number)
 	local geo = session.Geo
 	local deck = session.Deck
 	if deck then
+		deck.Offset = 0
 		deck.Open = alpha
+		-- O teto cinzento sai logo no início: na transição só se veem nuvens
+		fadeCeiling(deck, math.clamp(t / CIN.CeilingFadeTime, 0, 1))
 	end
-	local push = geo.Forward * 6 * easeOutCubic(alpha) + Vector3.new(0, 4 * alpha, 0)
-	setCamera(session, geo.CamBase + push, session.PanePos, CIN.FovStart)
+	-- Plano 2: a câmara sobe em grua enquanto o céu abre
+	local e = easeInOutSine(alpha)
+	local position = shotPosition(geo, SHOT_FRONT - 0.2 + 0.35 * e, 32 - 6 * e, 6 + 8 * e)
+	setCamera(session, position, session.BreachPos, CIN.FovStart + 5 - 5 * e)
 end
 
 UPDATE.Rift = function(session: Session, t: number, _alpha: number, _dt: number)
 	local geo = session.Geo
-	local crack = ensureCrack(session)
-	local growTime = CIN.CrackGrowTime
-	if t < growTime then
-		local progress = t / growTime
-		growCrack(crack, progress)
-		crack.Pane.Transparency = lerp(0.45, 0.15, progress)
-		if session.ShakeUntil < os.clock() then
-			shake(session, CIN.ShakeRift * (1 + progress * 2), 0.25)
-		end
-	elseif not crack.Shattered then
-		shatterCrack(crack, session.Folder, if session.Params.LowVfx then CIN.ShardCountLow else CIN.ShardCount)
-		CrateSfx.Play("SkyShatter")
-		lightningFlash(session, 1.6)
-		shake(session, CIN.ShakeImpact * 0.5, 0.4)
+	local breach = ensureBreach(session)
+	-- Pancadas do outro lado do céu: cada uma parte mais um pedaço; a última é a maior
+	local nextIndex = breach.HitsDone + 1
+	local nextHit = BREACH.Hits[nextIndex]
+	if nextHit and t >= nextHit.Time then
+		hitBreach(breach, nextIndex, os.clock())
+		local last = nextIndex == #BREACH.Hits
+		CrateSfx.Play(if last then "SkyShatter" else "SkyHit")
+		lightningFlash(session, if last then 1.6 else 0.5 + 0.4 * nextHit.Size)
+		shake(session, if last then CIN.ShakeImpact * 0.6 else CIN.ShakeRift * (2 + 4 * nextHit.Size), if last then 0.5 else 0.3)
+		session.FovKick = CIN.HitZoom * (if last then 1.6 else 0.6 + 0.4 * nextHit.Size)
 	end
-	setCamera(session, geo.CamBase + geo.Forward * 6 + Vector3.new(0, 4, 0), session.PanePos, CIN.FovStart)
+	-- Plano 3: rasteiro e inclinado, quase por baixo da brecha (o céu a cair em cima)
+	local drift = t / phaseDuration("Rift")
+	local position = shotPosition(geo, SHOT_FRONT + 0.35 + 0.15 * drift, 18 - 3 * drift, 2)
+	setCamera(session, position, session.BreachPos, CIN.FovStart, -0.06)
 end
 
 UPDATE.Leap = function(session: Session, _t: number, alpha: number, _dt: number)
 	local geo = session.Geo
 	local silhouette = session.Sil
-	local position = session.PanePos:Lerp(geo.Landing, easeInQuad(alpha))
+	local position = session.BreachPos:Lerp(geo.Landing, easeInQuad(alpha))
 	if silhouette then
 		placeRig(silhouette, position, geo.CamBase)
 	end
-	local cameraPos = geo.CamBase + geo.Forward * 6 + Vector3.new(0, lerp(4, 1, alpha), 0)
+	-- Plano 4: lateral, a seguir o artista a cair
+	local cameraPos = shotPosition(geo, SHOT_FRONT + 0.9, 28, lerp(10, 3, alpha))
 	setCamera(session, cameraPos, position + Vector3.new(0, 2, 0), lerp(CIN.FovStart, CIN.FovLeap, alpha))
 end
 
@@ -1171,8 +1820,9 @@ UPDATE.Impact = function(session: Session, _t: number, alpha: number, _dt: numbe
 	if shockwave then
 		updateShockwave(shockwave, alpha, CIN.CraterRadius * 6)
 	end
-	local cameraPos = geo.CamBase + geo.Forward * 6 + Vector3.new(0, 1, 0)
-	setCamera(session, cameraPos, geo.Landing + Vector3.new(0, 2, 0), lerp(CIN.FovLeap, CIN.FovReveal, alpha))
+	-- Plano 5: corte seco ao nível do chão
+	local cameraPos = shotPosition(geo, SHOT_FRONT + 1.1, 22, 1.2)
+	setCamera(session, cameraPos, geo.Landing + Vector3.new(0, 2.5, 0), lerp(CIN.FovLeap, CIN.FovReveal, alpha))
 end
 
 UPDATE.Reveal = function(session: Session, t: number, _alpha: number, _dt: number)
@@ -1186,8 +1836,10 @@ UPDATE.Reveal = function(session: Session, t: number, _alpha: number, _dt: numbe
 			session.ColorStart = nil
 		end
 	end
+	-- Plano 6: órbita com aproximação e subida ligeira
 	local angle = session.OrbitBase + t * CIN.OrbitSpeed
-	local cameraPos = geo.Landing + Vector3.new(math.cos(angle) * CIN.OrbitRadius, 4, math.sin(angle) * CIN.OrbitRadius)
+	local approach = easeInOutSine(math.clamp(t / phaseDuration("Reveal"), 0, 1))
+	local cameraPos = shotPosition(geo, angle, lerp(CIN.OrbitRadius + 6, CIN.OrbitRadius - 2, approach), lerp(2.5, 4.5, approach))
 	setCamera(session, cameraPos, geo.Landing + Vector3.new(0, 3, 0), CIN.FovReveal)
 end
 
@@ -1213,6 +1865,10 @@ end
 -- Motor da timeline ---------------------------------------------------------------------
 
 local function enter(session: Session, name: string)
+	-- Transição suave do plano anterior para o desta fase (0 = corte seco)
+	session.BlendFrom = Workspace.CurrentCamera.CFrame
+	session.BlendStart = os.clock()
+	session.BlendTime = if session.HasControl then ((CIN.CameraBlend :: unknown) :: { [string]: number })[name] or 0 else 0
 	local callback = ENTER[name]
 	if callback then
 		callback(session)
@@ -1245,6 +1901,7 @@ local function step(session: Session, dt: number)
 	end
 
 	local now = os.clock()
+	session.FovKick = math.max(0, session.FovKick - dt * 30)
 	local deck = session.Deck
 	if deck then
 		updateDeck(deck, session.Geo.Sky, dt)
@@ -1252,9 +1909,9 @@ local function step(session: Session, dt: number)
 	for _, bolt in session.Bolts do
 		updateBolt(bolt, now)
 	end
-	local crack = session.Crack
-	if crack then
-		updateShards(crack, dt)
+	local breach = session.Breach
+	if breach then
+		updateBreach(breach, now, dt)
 	end
 	local rain = session.Rain
 	if rain then
@@ -1327,9 +1984,8 @@ function CrateCinematicController.Play(params: CinematicParams, onDone: (complet
 		Bolts = {},
 		NextBolt = 1,
 		Strikes = {},
-		Rays = {},
-		Crack = nil,
-		PanePos = geo.Sky + Vector3.new(0, CIN.PaneLift, 0),
+		Breach = nil,
+		BreachPos = geo.Sky + Vector3.new(0, BREACH.Lift, 0),
 		Rain = nil,
 		Sil = nil,
 		Shockwave = nil,
@@ -1337,6 +1993,10 @@ function CrateCinematicController.Play(params: CinematicParams, onDone: (complet
 		ShakeUntil = 0,
 		ShakeMagnitude = 0,
 		ShakeDuration = 0,
+		BlendFrom = nil,
+		BlendStart = 0,
+		BlendTime = 0,
+		FovKick = 0,
 		EndSwapped = false,
 		OrbitBase = 0,
 	}
@@ -1396,6 +2056,7 @@ function CrateCinematicController.Cancel()
 end
 
 -- Versão leve (outros jogadores) ----------------------------------------------------------
+-- Usa os mesmos tempos da timeline completa: StartTime = início da cinemática do dono.
 
 local function lightBeam(trove: Trove.Trove, folder: Instance, geo: Geometry, rarity: RarityDef, start: number)
 	local beam = CinematicAssets.NewPart(
@@ -1413,7 +2074,7 @@ local function lightBeam(trove: Trove.Trove, folder: Instance, geo: Geometry, ra
 	light.Range = 60
 	light.Brightness = 0
 	light.Parent = beam
-	local impactAt = LIGHT.LeapStart + LIGHT.LeapDuration
+	local impactAt = phaseStart("Impact")
 	local total = impactAt + LIGHT.RevealHold
 	trove:Connect(RunService.RenderStepped, function()
 		local t = Workspace:GetServerTimeNow() - start
@@ -1432,15 +2093,18 @@ end
 local function lightFull(trove: Trove.Trove, folder: Instance, geo: Geometry, summon: CrateSummon, rarity: RarityDef, lowVfx: boolean)
 	local deck: Deck? = nil
 	local bolt: Bolt? = nil
-	local crack: SkyCrack? = nil
+	local breach: Breach? = nil
 	local silhouette: Silhouette? = nil
 	local shockwave: BasePart? = nil
 	local strikes: { boolean } = {}
-	local panePos = geo.Sky + Vector3.new(0, CIN.PaneLift * 0.5, 0)
-	local openStart = LIGHT.LeapStart - 1.6
-	local crackStart = LIGHT.LeapStart - 1.0
-	local shatterAt = LIGHT.LeapStart - 0.1
-	local impactAt = LIGHT.LeapStart + LIGHT.LeapDuration
+	local breachPos = geo.Sky + Vector3.new(0, BREACH.Lift * 0.5, 0)
+	local stormAt = phaseStart("Storm")
+	local openAt = phaseStart("SkyOpen")
+	local openTime = phaseDuration("SkyOpen")
+	local riftAt = phaseStart("Rift")
+	local leapAt = phaseStart("Leap")
+	local leapTime = phaseDuration("Leap")
+	local impactAt = leapAt + leapTime
 	local total = impactAt + LIGHT.RevealHold
 	local impacted = false
 	local lastClock = os.clock()
@@ -1450,7 +2114,7 @@ local function lightFull(trove: Trove.Trove, folder: Instance, geo: Geometry, su
 		local dt = now - lastClock
 		lastClock = now
 		local t = Workspace:GetServerTimeNow() - summon.StartTime
-		if t < 0 then
+		if t < stormAt then
 			return
 		end
 		if t >= total then
@@ -1458,21 +2122,26 @@ local function lightFull(trove: Trove.Trove, folder: Instance, geo: Geometry, su
 			return
 		end
 		if not deck then
-			deck = spawnDeck(folder, LIGHT.CloudRings, false)
+			deck = spawnDeck(folder, LIGHT.CloudRings, false, false)
 			bolt = makeBolt(folder)
 		end
 		local currentDeck = deck
 		if currentDeck then
-			currentDeck.Open = math.clamp((t - openStart) / 1.2, 0, 1)
+			if t < openAt then
+				currentDeck.Offset = CIN.CloudCloseDistance * (1 - easeOutCubic(math.clamp((t - stormAt) / CIN.CloudCloseTime, 0, 1)))
+			else
+				currentDeck.Offset = 0
+				currentDeck.Open = math.clamp((t - openAt) / openTime, 0, 1)
+			end
 			updateDeck(currentDeck, geo.Sky, dt)
-			if t >= impactAt and currentDeck.Open >= 1 then
+			if t >= impactAt then
 				fadeDeck(currentDeck, math.clamp((t - impactAt) / LIGHT.RevealHold, 0, 1))
 			end
 		end
 		local currentBolt = bolt
 		if currentBolt then
 			for index, time in CIN.LightningTimes do
-				if not strikes[index] and t >= time and t < openStart then
+				if not strikes[index] and t >= stormAt + time and t < openAt then
 					strikes[index] = true
 					local from, to = strikePoints(geo, index, LIGHT.SkyHeight)
 					strike(currentBolt, from, to)
@@ -1483,31 +2152,29 @@ local function lightFull(trove: Trove.Trove, folder: Instance, geo: Geometry, su
 			end
 			updateBolt(currentBolt, now)
 		end
-		if t >= openStart and not crack then
-			crack = makeSkyCrack(folder, panePos, CIN.PaneRadius * 0.5, if lowVfx then 3 else 4, rarity)
-		end
-		local currentCrack = crack
-		if currentCrack then
-			if not currentCrack.Shattered then
-				currentCrack.Pane.Transparency = lerp(1, 0.3, math.clamp((t - openStart) / 0.6, 0, 1))
-				if t >= crackStart then
-					growCrack(currentCrack, math.clamp((t - crackStart) / (shatterAt - crackStart), 0, 1))
-				end
-				if t >= shatterAt then
-					shatterCrack(currentCrack, folder, if lowVfx then 4 else 8)
-					CrateSfx.PlayAt("SkyShatter", geo.Landing)
-				end
+		if t >= riftAt and t < impactAt then
+			if not breach then
+				breach = makeBreach(folder, breachPos, geo.Right, 0.6, rarity, true)
 			end
-			updateShards(currentCrack, dt)
+			local currentBreach = breach
+			if currentBreach then
+				local nextIndex = currentBreach.HitsDone + 1
+				local nextHit = BREACH.Hits[nextIndex]
+				if nextHit and t - riftAt >= nextHit.Time then
+					hitBreach(currentBreach, nextIndex, now)
+					CrateSfx.PlayAt(if nextIndex == #BREACH.Hits then "SkyShatter" else "SkyHit", geo.Landing)
+				end
+				updateBreach(currentBreach, now, dt)
+			end
 		end
-		if t >= LIGHT.LeapStart then
+		if t >= leapAt then
 			if not silhouette then
 				silhouette = makeSilhouette(folder, summon.ArtistId, rarity)
 			end
 			local currentSil = silhouette
 			if currentSil then
-				local alpha = math.clamp((t - LIGHT.LeapStart) / LIGHT.LeapDuration, 0, 1)
-				placeRig(currentSil, panePos:Lerp(geo.Landing, easeInQuad(alpha)), geo.CamBase)
+				local alpha = math.clamp((t - leapAt) / leapTime, 0, 1)
+				placeRig(currentSil, breachPos:Lerp(geo.Landing, easeInQuad(alpha)), geo.CamBase)
 				if t >= impactAt then
 					colorSilhouette(currentSil, math.clamp((t - impactAt) / CIN.ColorTweenTime, 0, 1))
 				end
@@ -1515,6 +2182,11 @@ local function lightFull(trove: Trove.Trove, folder: Instance, geo: Geometry, su
 		end
 		if t >= impactAt and not impacted then
 			impacted = true
+			local currentBreach = breach
+			if currentBreach then
+				destroyBreach(currentBreach)
+				breach = nil
+			end
 			shockwave = spawnImpact(folder, geo.Landing, rarity, lowVfx, false)
 			CrateSfx.PlayAt("Impact", geo.Landing)
 			local currentSil = silhouette
