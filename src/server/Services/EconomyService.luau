@@ -43,9 +43,10 @@ local EconomyService = {}
 
 local hypeChanged: Signal.Signal<Player> = Signal.new()
 local offlineEarned: Signal.Signal<Player, BigNum, number> = Signal.new()
-local clicked: Signal.Signal<Player> = Signal.new()
+local clicked: Signal.Signal<Player, number> = Signal.new()
 
--- Disparado por cada batida aceite pelo servidor (usado pelo BassDropService para energia).
+-- (jogador, nº de batidas) — batidas aceites pelo servidor (manuais ou Auto-Batida).
+-- Usado pelo Bass Drop (energia), missões e conquistas.
 EconomyService.Clicked = clicked
 
 -- Disparado sempre que o Hype de um jogador muda.
@@ -58,6 +59,7 @@ local debugPassiveOverride: { [Player]: BigNum } = {}
 local rateCache: { [Player]: RateCache } = {}
 local boosts: { [Player]: Boost } = {}
 local artistModifiers: { [Player]: { Hype: number, Click: number } } = {}
+local gamepassMultipliers: { [Player]: number } = {}
 
 local function assertGrowthRate(rate: number)
 	local bounds = EconomyConfig.GrowthRate
@@ -88,6 +90,7 @@ local function getRates(player: Player): RateCache?
 		* PrestigeCalc.GetFameMultiplier(data.WorldTours)
 		* skills.HypeMultiplier
 		* artistMultiplier
+		* (gamepassMultipliers[player] or 1)
 	local clickMultiplier = (1 + (if modifiers then modifiers.Click else 0)) * skills.ClickMultiplier
 	local rates: RateCache = {
 		PerClick = BigNum.mulNumber(EquipmentCalc.GetHypePerClick(data.Equipment), globalMultiplier * clickMultiplier),
@@ -95,6 +98,12 @@ local function getRates(player: Player): RateCache?
 	}
 	rateCache[player] = rates
 	return rates
+end
+
+-- Definido pelo MonetizationService (Gamepass "Hype ×2")
+function EconomyService.SetGamepassMultiplier(player: Player, multiplier: number)
+	gamepassMultipliers[player] = if multiplier > 1 then multiplier else nil
+	EconomyService.InvalidateRates(player)
 end
 
 -- Definido pelo ArtistService: multiplicador global de Hype e bónus extra por batida
@@ -245,10 +254,19 @@ local function onClick(player: Player)
 		)
 		return
 	end
-	data.Stats.Clicks += 1
-	local gain = BigNum.mulNumber(EconomyService.GetHypePerClick(player), EconomyService.GetBoostMultiplier(player))
+	EconomyService.ApplyClicks(player, 1)
+end
+
+-- Aplica `count` batidas de uma vez (manual = 1; Auto-Batida = 5 por segundo)
+function EconomyService.ApplyClicks(player: Player, count: number)
+	local data = DataService.GetProfile(player)
+	if not data or count <= 0 then
+		return
+	end
+	data.Stats.Clicks += count
+	local gain = BigNum.mulNumber(EconomyService.GetHypePerClick(player), EconomyService.GetBoostMultiplier(player) * count)
 	EconomyService.AddHype(player, gain)
-	clicked:Fire(player)
+	clicked:Fire(player, count)
 end
 
 local function tick(deltaTime: number)
@@ -282,6 +300,7 @@ function EconomyService.Init()
 		rateCache[player] = nil
 		boosts[player] = nil
 		artistModifiers[player] = nil
+		gamepassMultipliers[player] = nil
 	end)
 end
 

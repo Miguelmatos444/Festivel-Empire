@@ -12,6 +12,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Types = require(ReplicatedStorage.Shared.Types)
 local RemoteDefs = require(ReplicatedStorage.Shared.Net.RemoteDefs)
 local EquipmentCalc = require(ReplicatedStorage.Shared.Calc.EquipmentCalc)
+local Signal = require(ReplicatedStorage.Shared.Util.Signal)
 local ServerNet = require(script.Parent.Parent.Net.ServerNet)
 local DataService = require(script.Parent.DataService)
 local EconomyService = require(script.Parent.EconomyService)
@@ -21,6 +22,11 @@ type PurchaseResult = Types.PurchaseResult
 type PurchaseFailReason = Types.PurchaseFailReason
 
 local EquipmentService = {}
+
+local purchased: Signal.Signal<Player, number> = Signal.new()
+
+-- (jogador, níveis comprados) — missões
+EquipmentService.Purchased = purchased
 
 local function fail(id: string, reason: PurchaseFailReason, level: number): PurchaseResult
 	return {
@@ -60,6 +66,7 @@ function EquipmentService.Purchase(player: Player, id: string, mode: BuyMode): P
 	local newLevel = level + count
 	data.Equipment[id] = newLevel
 	EconomyService.InvalidateRates(player)
+	purchased:Fire(player, count)
 
 	return {
 		EquipmentId = id,

@@ -134,15 +134,15 @@ function PrestigeCalc.GetFameMultiplier(worldTours: number): number
 	return PrestigeConfig.FamePerWorldTour ^ math.max(worldTours, 0)
 end
 
--- Discos que um World Tour daria agora
-function PrestigeCalc.GetDiscsPreview(runHype: BigNum, stageTier: number, tree: Tree): number
+-- Discos que um World Tour daria agora. extraBonus: ex.: Gamepass "Agente de Tour" (+0.25)
+function PrestigeCalc.GetDiscsPreview(runHype: BigNum, stageTier: number, tree: Tree, extraBonus: number?): number
 	if runHype.m <= 0 then
 		return 0
 	end
 	local ratioLog = BigNum.log10(runHype) - math.log10(PrestigeConfig.HypeReference)
 	local root = 10 ^ (ratioLog / 2)
 	local tierFactor = 1 + PrestigeConfig.TierBonus * math.max(stageTier - PrestigeConfig.MinTier, 0)
-	local discFactor = 1 + PrestigeCalc.GetSkillEffects(tree).DiscBonus
+	local discFactor = 1 + PrestigeCalc.GetSkillEffects(tree).DiscBonus + (extraBonus or 0)
 	local discs = PrestigeConfig.DiscBase * root * tierFactor * discFactor
 	if discs ~= discs or discs == math.huge then
 		return 0

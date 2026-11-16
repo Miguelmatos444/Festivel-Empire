@@ -31,6 +31,7 @@ local Theme = require(script.Parent.Parent.Theme)
 local Components = require(script.Parent.Parent.Components)
 local ModalManager = require(script.Parent.Parent.ModalManager)
 local SideMenu = require(script.Parent.Parent.SideMenu)
+local VipPage = require(script.Parent.VipPage)
 
 type BigNum = BigNum.BigNum
 type BuyMode = Types.BuyMode
@@ -41,7 +42,7 @@ type PurchaseResult = Types.PurchaseResult
 type Snapshot = Types.PlayerStateSnapshot
 type DropState = Types.DropState
 
-export type Tab = "Equipment" | "Pyro"
+export type Tab = "Equipment" | "Pyro" | "Vip"
 
 type Card = {
 	Id: string,
@@ -380,13 +381,13 @@ function ShopView.Mount()
 
 	local tabButtons: { [Tab]: TextButton } = {}
 	local tabPages: { [Tab]: Frame } = {}
-	local tabOrder: { Tab } = { "Equipment", "Pyro" }
-	local tabTitles: { [Tab]: string } = { Equipment = "EQUIPAMENTO", Pyro = "PIROTECNIA" }
+	local tabOrder: { Tab } = { "Equipment", "Pyro", "Vip" }
+	local tabTitles: { [Tab]: string } = { Equipment = "EQUIPAMENTO", Pyro = "PIROTECNIA", Vip = "VIP" }
 
 	for index, tab in tabOrder do
 		local button = Components.makeButton(tab, Theme.Colors.Background)
 		button.LayoutOrder = index
-		button.Size = UDim2.new(0.5, -4, 1, 0)
+		button.Size = UDim2.new(1 / #tabOrder, -6, 1, 0)
 		button.Font = Theme.Fonts.Display
 		button.TextColor3 = Theme.Colors.Text
 		button.TextScaled = true
@@ -485,6 +486,9 @@ function ShopView.Mount()
 	synergyPadding.Parent = synergyLabel
 	synergyLabel.Parent = pyroList
 
+	-- Página VIP: Gamepasses e Developer Products (Robux)
+	local refreshVip = VipPage.Build(tabPages.Vip, trove)
+
 	-- Atualização --------------------------------------------------------------
 	local dirty = true
 	local currentTab: Tab = "Equipment"
@@ -512,6 +516,8 @@ function ShopView.Mount()
 			for _, def in EquipmentConfig.List do
 				refreshEquipmentCard(equipmentCards[def.Id], def, snapshot, mode, budget)
 			end
+		elseif currentTab == "Vip" then
+			task.spawn(refreshVip) -- os preços podem precisar de um pedido ao Roblox
 		else
 			local dropState = BassDropController.Get()
 			for _, def in PyroConfig.List do

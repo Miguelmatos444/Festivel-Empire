@@ -120,6 +120,7 @@ Ordem: 9 → 10 → 11 → depois Monetização e polimento. Em cada fase, apres
 - `SideMenu`: novos botões depois dos atuais (6 Índice, 7 Fones). Teclas sugeridas: I Índice, H Fones; as setas ficam reservadas ao minijogo.
 - Invalidar taxas (`EconomyService.InvalidateRates`) ao mudar combo, fones, Vibes ou Sorte quando afetarem cálculos em cache.
 - Comandos de debug a acrescentar: `arrows diff <n>|stats`, `vibes add|set <v>`, `luck`, `phones give <nível>|equip <nível>`, `listen`, `boost force`, `index discover <id> <raridade>|reset|claim`, `showcase auto|<id>`.
+| 9+10 Monetização/Retenção | 4 Gamepasses (Palco VIP, Auto-Batida no servidor, Hype ×2, Agente de Tour), 5 Developer Products (ProcessReceipt idempotente), "Bem-vindo de volta", leaderboards globais na praça, diário 7 dias (20 h / 48 h), 3 missões diárias + 2 semanais por sinais, códigos com expiração/limite global, 10 Badges | `Config/Monetization`, `Config/Retention`, `Config/Codes`, `Config/Badges`, `Config/Leaderboards`, `RetentionCalc`, `RewardService`, `MonetizationService`, `RetentionService`, `AchievementService`, `LeaderboardService`, `MissionsView`, `VipPage`, `WelcomeBackView` |
 
 # ARQUITETURA E CONVENÇÕES (respeitar ao continuar)
 - **Bootstrap:** `Main.server.luau` e `Main.client.luau` correm cada `Init()`/`Start()`/`Mount()` isolado com `xpcall` (um módulo com erro não desliga os outros e aparece no Output com traceback). No servidor o núcleo (rede, dados, economia, estado) inicializa antes do mundo (mapa/terrenos/palcos).
@@ -131,7 +132,9 @@ Ordem: 9 → 10 → 11 → depois Monetização e polimento. Em cada fase, apres
 - **Transições de palco:** o servidor troca o modelo e grava atributos `Transition*` no Plot (`Start` em `GetServerTimeNow`, `From`, `To`, `Era`, `Kind`, `WorldTour`, `Id`); cada cliente anima localmente (`StageAnimController`). Tipos: `"Stage"` e `"Prestige"`.
 - **Modelos substituíveis (Blender):** contrato `Model` com `Root` (Part invisível, PrimaryPart, com os Attachments) + `Visual` (geometria). Overrides em `ServerStorage/Assets/…` (`Stages/Tier_XX`, `Plaza`, `PlotSign` com parte `Board`, `Decor/<Era>`, `Prestige/Arch` com parte `Beam`, `Artists/<ArtistId>`; a acrescentar: `Showcase/Pedestal`, `Headphones/<Nível>`). Sem override usa `World/Placeholders`. Medidas para modelação em `docs/Medidas_Modelos_3D_Festival_Empire.pdf`.
 - **Pirotecnia/efeitos:** resolver de emissores aponta para os Attachments `Pyro_<Máquina>_<n>` do palco do dono (fallback à volta da personagem). Distâncias de LOD só em `Config/Lod`.
-- **UI:** botões laterais no `SideMenu` (ordem: 1 Voltar, 2 Loja, 3 Palcos, 4 Artistas, 5 World Tour); painéis centrais registam-se no `ModalManager` (só um aberto). Teclas: B loja, P palcos, K artistas, T World Tour, F drop.
+- **UI:** botões laterais no `SideMenu` (112×88; ordem: 1 Voltar, 2 Loja, 3 Palcos, 4 Artistas, 5 World Tour, 6 Missões); painéis centrais registam-se no `ModalManager` (só um aberto). Teclas: B loja, P palcos, K artistas, T World Tour, M missões, F drop, V loja VIP. Botão dourado "★ VIP" no canto superior direito (`VipButtonView`) abre a loja no separador VIP.
+- **Sinais de jogo** (para missões/conquistas, nunca progresso vindo do cliente): `EconomyService.Clicked(player, n)`, `BassDropService.DropSucceeded(player, grade)`, `EquipmentService.Purchased`, `GachaService.CratesOpened`, `ArtistService.Fused`, `StageService.StageChanged/StagePlaced`, `PrestigeService.WorldTourCompleted`, `RetentionService.DailyClaimed`.
+- **Recompensas:** tudo passa por `RewardService.Grant` (IncomeMinutes = minutos do Hype/s passivo atual com mínimo de 5 batidas/s; Discs; Crates = aberturas grátis da melhor crate; FillEnergy).
 - **Diagnóstico:** `Diag.Log/LogSampled` (prefixo `[Diag:S]`/`[Diag:C]`), ligado por `Config/Debug.NetTrace`.
 
 # ARMADILHAS JÁ ENCONTRADAS (não repetir)
@@ -158,11 +161,14 @@ Ordem: 9 → 10 → 11 → depois Monetização e polimento. Em cada fase, apres
 # COMANDOS DE DEBUG (`/fe <comando>`, admins / Studio)
 `help` · `hype add|set <v>` · `pps <v>|off` · `offline <s>` · `cost …` · `equip list|<id> <nível>` · `energy <n>` · `drop` · `pyro all` · `cd reset` · `stage <1-12> [anim]` · `wt <n>` · `artist give <id> <raridade> [estrelas] [qtd]|clear` · `pity` · `tour [force]` · `discs <n>` · `skills reset` · `plots` · `home` · `state` · `save` · `wipe confirm`
 (A acrescentar nas Fases 9–11: ver "Integração com a arquitetura".)
+`help` · `hype add|set <v>` · `pps <v>|off` · `offline <s>` · `cost …` · `equip list|<id> <nível>` · `energy <n>` · `drop` · `pyro all` · `cd reset` · `stage <1-12> [anim]` · `wt <n>` · `artist give <id> <raridade> [estrelas] [qtd]|clear` · `pity` · `tour [force]` · `discs <n>` · `skills reset` · `daily reset|skip|break` · `missions complete|reroll` · `product <key>` · `gamepass <key> on|off` · `plots` · `home` · `state` · `save` · `wipe confirm`
 
 # PENDENTE / PRÓXIMOS PASSOS CONHECIDOS
 - IDs de áudio em `Config/Audio` (a 0 → efeitos pulsam pelo relógio de 128 BPM).
 - Gamepass "Palco VIP": definir `Config/Artists.VipGamepassId`.
 - Modelos finais do Blender para palcos, praça, placa, decoração, arco, artistas, pedestal da vitrine e fones.
+- IDs reais no site do Roblox: Gamepasses e Developer Products (`Config/Monetization`; o Palco VIP usa `Config/Artists.VipGamepassId`) e Badges (`Config/Badges`). Com id 0 aparecem como "Em breve".
+- Modelos finais do Blender para palcos, praça, placa, decoração, arco e artistas.
 - `Settings.LowVfx` ainda não chega ao cliente (já existe `PyroVfxController.SetLowVfx`).
 - Recalibrar Fama e custos dos Tiers 9–12 com uma simulação que inclua artistas e árvore (só Fama = fim de jogo lento; com Amplificação = mais rápido que a tabela).
 - Antes de publicar: `Config/Debug.NetTrace = false`.

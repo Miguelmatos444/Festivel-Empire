@@ -20,6 +20,7 @@ local Client = script.Parent.Parent.Parent
 local StateController = require(Client.Controllers.StateController)
 local ClickController = require(Client.Controllers.ClickController)
 local BassDropController = require(Client.Controllers.BassDropController)
+local RetentionController = require(Client.Controllers.RetentionController)
 local Theme = require(script.Parent.Parent.Theme)
 local Components = require(script.Parent.Parent.Components)
 
@@ -175,6 +176,35 @@ function HudView.Mount()
 	perClickLabel.Text = "+1"
 	addStroke(perClickLabel, Theme.Colors.Background, 1.5)
 	perClickLabel.Parent = beatButton
+
+	-- Botão AUTO (Gamepass Auto-Batida): o servidor dá as batidas; aqui só liga/desliga
+	local autoButton = Components.makeButton("Auto", Theme.Colors.Panel)
+	autoButton.AnchorPoint = Vector2.new(0, 0.5)
+	autoButton.Position = UDim2.new(1, 4, 0.5, 0)
+	autoButton.Size = UDim2.fromOffset(78, 48)
+	autoButton.Font = Theme.Fonts.Display
+	autoButton.TextColor3 = Theme.Colors.Text
+	autoButton.TextSize = 20
+	autoButton.Text = "AUTO"
+	autoButton.Visible = false
+	Components.addCorner(autoButton, UDim.new(0, 12))
+	local autoStroke = Components.addStroke(autoButton, Theme.Colors.TextMuted, 2)
+	autoButton.Parent = bottom
+
+	local function renderAuto()
+		local sync = RetentionController.Get()
+		local owns = RetentionController.Owns("AutoClicker")
+		local enabled = sync ~= nil and sync.AutoClick and owns
+		autoButton.Visible = owns
+		autoButton.BackgroundColor3 = if enabled then Theme.Colors.Success else Theme.Colors.Panel
+		autoStroke.Color = if enabled then Theme.Colors.Gold else Theme.Colors.TextMuted
+		autoButton.Text = if enabled then "AUTO ✓" else "AUTO"
+	end
+	trove:Connect(autoButton.Activated, function()
+		local sync = RetentionController.Get()
+		RetentionController.SetAutoClick(not (sync ~= nil and sync.AutoClick))
+	end)
+	trove:Add(RetentionController.Changed:Connect(renderAuto))
 
 	-- Escala responsiva --------------------------------------------------------
 	local function updateScale()
@@ -351,16 +381,8 @@ function HudView.Mount()
 	end
 
 	local function onNotice(notice: Notice)
-		if notice.Kind == "OfflineEarnings" then
-			showToast(
-				string.format(
-					"Enquanto estiveste fora (%s), o teu festival gerou +%s Hype!",
-					NumberFormatter.formatTime(notice.Seconds),
-					NumberFormatter.format(BigNum.deserialize(notice.Amount))
-				),
-				Theme.Colors.Gold
-			)
-		elseif notice.Kind == "Info" then
+		-- "OfflineEarnings" é mostrado pelo WelcomeBackView (painel "Bem-vindo de volta")
+		if notice.Kind == "Info" then
 			showToast(notice.Text, Theme.Colors.Highlight)
 		end
 	end

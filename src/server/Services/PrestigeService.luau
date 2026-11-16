@@ -39,10 +39,17 @@ local ArtistService = require(script.Parent.ArtistService)
 local MapService = require(script.Parent.MapService)
 local PlotService = require(script.Parent.PlotService)
 local StageService = require(script.Parent.StageService)
+local MonetizationService = require(script.Parent.MonetizationService)
+local Signal = require(ReplicatedStorage.Shared.Util.Signal)
 
 local DECOR_NAME = "PrestigeDecor"
 
 local PrestigeService = {}
+
+local worldTourCompleted: Signal.Signal<Player, number> = Signal.new()
+
+-- (jogador, nº do World Tour) — missões e conquistas
+PrestigeService.WorldTourCompleted = worldTourCompleted
 
 local trove = Trove.new()
 
@@ -212,7 +219,7 @@ function PrestigeService.GetPreview(player: Player): (number, boolean, string?)
 	if not data then
 		return 0, false, "Perfil não carregado."
 	end
-	local discs = PrestigeCalc.GetDiscsPreview(data.RunHypeEarned, data.StageTier, data.SkillTree)
+	local discs = PrestigeCalc.GetDiscsPreview(data.RunHypeEarned, data.StageTier, data.SkillTree, MonetizationService.GetDiscBonus(player))
 	local can, reason = PrestigeCalc.CanWorldTour(data.StageTier, discs)
 	return discs, can, reason
 end
@@ -276,6 +283,7 @@ function PrestigeService.DoWorldTour(player: Player, force: boolean?): (boolean,
 	Diag.Log("Prestige", string.format("%s: World Tour #%d, +%d Discos (Tier %d → %d)", player.Name, data.WorldTours, discs, fromTier, data.StageTier))
 
 	task.spawn(DataService.SaveNow, player) -- grava já uma alteração tão importante
+	worldTourCompleted:Fire(player, data.WorldTours)
 	return true, ""
 end
 

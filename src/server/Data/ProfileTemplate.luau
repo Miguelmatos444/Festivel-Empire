@@ -55,6 +55,20 @@ function ProfileTemplate.Create(): Types.ProfileData
 			ColdSparks = true,
 		},
 		LastOnline = 0,
+		Daily = {
+			Streak = 0,
+			LastClaim = 0,
+		},
+		Missions = {
+			DayIndex = -1,
+			WeekIndex = -1,
+			Daily = {},
+			Weekly = {},
+		},
+		RedeemedCodes = {},
+		Badges = {},
+		Receipts = {},
+		AutoClick = false,
 	}
 end
 

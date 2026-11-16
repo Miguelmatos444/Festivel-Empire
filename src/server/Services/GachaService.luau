@@ -20,6 +20,7 @@ local RemoteDefs = require(ReplicatedStorage.Shared.Net.RemoteDefs)
 local BigNum = require(ReplicatedStorage.Shared.Util.BigNum)
 local NumberFormatter = require(ReplicatedStorage.Shared.Util.NumberFormatter)
 local Diag = require(ReplicatedStorage.Shared.Util.Diag)
+local Signal = require(ReplicatedStorage.Shared.Util.Signal)
 local ArtistCalc = require(ReplicatedStorage.Shared.Calc.ArtistCalc)
 local StageCalc = require(ReplicatedStorage.Shared.Calc.StageCalc)
 local PrestigeCalc = require(ReplicatedStorage.Shared.Calc.PrestigeCalc)
@@ -39,6 +40,11 @@ local ANNOUNCE_FROM_RARITY = "Divine"
 local PROMPT_NAME = "CrateStationPrompt"
 
 local GachaService = {}
+
+local cratesOpened: Signal.Signal<Player, number, { CrateItem }> = Signal.new()
+
+-- (jogador, nº de aberturas, resultados) — missões e conquistas
+GachaService.CratesOpened = cratesOpened
 
 local rng = Random.new()
 
@@ -104,6 +110,17 @@ function GachaService.Open(player: Player, crateId: string, count: number): (boo
 		return false, "Hype insuficiente (" .. NumberFormatter.format(cost) .. ")."
 	end
 
+	GachaService.Pull(player, crate, count)
+	return true, nil
+end
+
+-- Abre `count` crates já validadas/pagas: pity, sorteio, Auto-Delete/Fuse, resultado e sinais
+function GachaService.Pull(player: Player, crate: Types.CrateDef, count: number)
+	local data = DataService.GetProfile(player)
+	if not data or count <= 0 then
+		return
+	end
+	local skills = PrestigeCalc.GetSkillEffects(data.SkillTree)
 	local items: { CrateItem } = {}
 	local announceIndex = RaritiesConfig.IndexById[ANNOUNCE_FROM_RARITY]
 	for _ = 1, count do
@@ -135,8 +152,39 @@ function GachaService.Open(player: Player, crateId: string, count: number): (boo
 	ArtistService.Commit(player)
 	local result: CrateResult = { CrateId = crate.Id, Items = items }
 	ServerNet.FireClient(RemoteDefs.Defs.CrateResult, player, result)
+	cratesOpened:Fire(player, count, items)
 	Diag.Log("Gacha", string.format("%s abriu %dx %s", player.Name, count, crate.Id))
-	return true, nil
+end
+
+-- Melhor crate desbloqueada pelo tier atual
+function GachaService.GetBestCrate(player: Player): Types.CrateDef?
+	local data = DataService.GetProfile(player)
+	if not data then
+		return nil
+	end
+	local best: Types.CrateDef? = nil
+	for _, crate in ArtistsConfig.Crates do
+		if data.StageTier >= crate.RequiredTier then
+			best = crate
+		end
+	end
+	return best
+end
+
+-- Aberturas grátis (recompensas, produtos). Devolve quantas foram abertas
+-- (limitadas pelo espaço livre na coleção).
+function GachaService.OpenFree(player: Player, count: number): number
+	local crate = GachaService.GetBestCrate(player)
+	if not crate then
+		return 0
+	end
+	local free = ArtistsConfig.InventoryCap - ArtistService.GetCount(player)
+	local amount = math.clamp(count, 0, math.max(free, 0))
+	if amount < count then
+		notify(player, string.format("Coleção quase cheia: só %d de %d crates grátis foram abertas.", amount, count))
+	end
+	GachaService.Pull(player, crate, amount)
+	return amount
 end
 
 -- Prompts nas estações da praça (abrem o painel no cliente)

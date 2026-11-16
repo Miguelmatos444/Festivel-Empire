@@ -27,6 +27,8 @@ local StageCalc = require(ReplicatedStorage.Shared.Calc.StageCalc)
 local Client = script.Parent.Parent.Parent
 local StateController = require(Client.Controllers.StateController)
 local PrestigeController = require(Client.Controllers.PrestigeController)
+local RetentionController = require(Client.Controllers.RetentionController)
+local MonetizationConfig = require(ReplicatedStorage.Shared.Config.Monetization)
 local Theme = require(script.Parent.Parent.Theme)
 local Components = require(script.Parent.Parent.Components)
 local ModalManager = require(script.Parent.Parent.ModalManager)
@@ -376,7 +378,8 @@ function PrestigeView.Mount()
 			return
 		end
 		local runHype = BigNum.deserialize(snapshot.RunHypeEarned)
-		local discs = PrestigeCalc.GetDiscsPreview(runHype, snapshot.StageTier, snapshot.SkillTree)
+		local agentBonus = if RetentionController.Owns("TourAgent") then MonetizationConfig.TourAgentDiscBonus else 0
+		local discs = PrestigeCalc.GetDiscsPreview(runHype, snapshot.StageTier, snapshot.SkillTree, agentBonus)
 		local can, reason = PrestigeCalc.CanWorldTour(snapshot.StageTier, discs)
 		eligible = can
 
