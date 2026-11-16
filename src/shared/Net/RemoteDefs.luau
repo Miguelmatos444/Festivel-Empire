@@ -38,6 +38,7 @@ export type Registry = {
 	ClaimMission: RemoteDef,
 	RedeemCode: RemoteDef,
 	SetAutoClick: RemoteDef,
+	SetFastCrateAnim: RemoteDef,
 	StateSnapshot: RemoteDef,
 	StateDelta: RemoteDef,
 	Notify: RemoteDef,
@@ -46,6 +47,7 @@ export type Registry = {
 	DropResolved: RemoteDef,
 	ArtistsSync: RemoteDef,
 	CrateResult: RemoteDef,
+	CrateSummon: RemoteDef,
 	RetentionSync: RemoteDef,
 }
 
@@ -196,6 +198,12 @@ local Defs: Registry = {
 		RateLimit = { PerSecond = 2, Burst = 4 },
 		Args = { { Kind = "boolean" } },
 	},
+	SetFastCrateAnim = { -- (ligado) — "Animação rápida" das crates
+		Name = "SetFastCrateAnim",
+		Direction = "ClientToServer",
+		RateLimit = { PerSecond = 2, Burst = 4 },
+		Args = { { Kind = "boolean" } },
+	},
 
 	-- Servidor -> Cliente ----------------------------------------------------
 	StateSnapshot = { -- payload: Types.PlayerStateSnapshot
@@ -238,6 +246,11 @@ local Defs: Registry = {
 		Direction = "ServerToClient",
 		Args = {},
 	},
+	CrateSummon = { -- payload: Types.CrateSummon (todos menos o dono, versão leve com LOD)
+		Name = "CrateSummon",
+		Direction = "ServerToClient",
+		Args = {},
+	},
 	RetentionSync = { -- payload: Types.RetentionSync
 		Name = "RetentionSync",
 		Direction = "ServerToClient",
@@ -267,6 +280,7 @@ local All: { RemoteDef } = {
 	Defs.ClaimMission,
 	Defs.RedeemCode,
 	Defs.SetAutoClick,
+	Defs.SetFastCrateAnim,
 	Defs.StateSnapshot,
 	Defs.StateDelta,
 	Defs.Notify,
@@ -275,6 +289,7 @@ local All: { RemoteDef } = {
 	Defs.DropResolved,
 	Defs.ArtistsSync,
 	Defs.CrateResult,
+	Defs.CrateSummon,
 	Defs.RetentionSync,
 }
 

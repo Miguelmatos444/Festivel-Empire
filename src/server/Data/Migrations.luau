@@ -18,6 +18,25 @@ local Migrations = {}
 local steps: { [number]: Migration } = {
 	-- v0 -> v1: dados sem DataVersion (anteriores ao sistema de versões). Nada a converter.
 	[0] = function(_data: RawData) end,
+
+	-- v1 -> v2 (Fase 12): Settings.FastCrateAnim e Stats.CinematicsSeen.
+	-- Garante os valores iniciais explicitamente (o Reconcile também os preencheria).
+	[1] = function(data: RawData)
+		local settings = data.Settings
+		if type(settings) == "table" then
+			local raw = (settings :: unknown) :: RawData
+			if type(raw.FastCrateAnim) ~= "boolean" then
+				raw.FastCrateAnim = false
+			end
+		end
+		local stats = data.Stats
+		if type(stats) == "table" then
+			local raw = (stats :: unknown) :: RawData
+			if type(raw.CinematicsSeen) ~= "number" then
+				raw.CinematicsSeen = 0
+			end
+		end
+	end,
 }
 
 -- Devolve (true) em sucesso, ou (false, motivo) se os dados não puderem ser usados.

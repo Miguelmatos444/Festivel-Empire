@@ -15,7 +15,7 @@ type RawData = { [string]: unknown }
 
 local ProfileTemplate = {}
 
-ProfileTemplate.Version = 1
+ProfileTemplate.Version = 2
 
 function ProfileTemplate.Create(): Types.ProfileData
 	return {
@@ -42,11 +42,13 @@ function ProfileTemplate.Create(): Types.ProfileData
 			Clicks = 0,
 			PlayTime = 0,
 			BassDrops = 0,
+			CinematicsSeen = 0,
 		},
 		Settings = {
 			MusicVolume = 0.8,
 			SfxVolume = 1,
 			LowVfx = false,
+			FastCrateAnim = false,
 			AutoFuse = false,
 			AutoDeleteUpTo = 0,
 		},

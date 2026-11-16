@@ -76,6 +76,15 @@ local function applyDelta(delta: StateDelta)
 	if delta.Clicks then
 		nextState.Clicks = delta.Clicks
 	end
+	-- Booleanos: "false" também é uma alteração, por isso compara com nil
+	local lowVfx = delta.LowVfx
+	if lowVfx ~= nil then
+		nextState.LowVfx = lowVfx
+	end
+	local fastCrateAnim = delta.FastCrateAnim
+	if fastCrateAnim ~= nil then
+		nextState.FastCrateAnim = fastCrateAnim
+	end
 	local equipmentDelta = delta.Equipment
 	if equipmentDelta then
 		local merged = table.clone(current.Equipment)

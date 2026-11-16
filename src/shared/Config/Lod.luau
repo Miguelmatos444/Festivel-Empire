@@ -26,6 +26,13 @@ local Lod = table.freeze({
 		FullDistance = 120,
 		MaxDistance = 250,
 	}),
+
+	-- Cinemática de ultra-raro de OUTRO jogador (o dono vê sempre a versão completa):
+	-- versão leve até FullDistance, só feixe de luz + flash até BeamDistance, nada além
+	Cinematic = table.freeze({
+		FullDistance = 120,
+		BeamDistance = 250,
+	}),
 })
 
 return Lod

@@ -4,7 +4,8 @@
 	Painel central "ARTISTAS" com dois separadores:
 	  CRATES   — as 5 Vinyl Crates (cadeado por tier), abertura x1/x10, pity atual,
 	             botão "%" com as probabilidades de cada crate (ArtistCalc.GetCrateOdds)
-	             e revelação animada dos resultados com a cor de cada raridade
+	             e opção "Animação rápida". A revelação (roleta, grelha x10, cinemática)
+	             é da CrateRevealView.
 	  COLEÇÃO  — grelha de artistas (equipados primeiro, raridade mais alta primeiro),
 	             detalhe com bónus e habilidades, equipar/desequipar, cadeado, fundir,
 	             Fundir tudo, Auto-Fuse e Auto-Delete ("apagar até…")
@@ -33,6 +34,7 @@ local Client = script.Parent.Parent.Parent
 local StateController = require(Client.Controllers.StateController)
 local ArtistController = require(Client.Controllers.ArtistController)
 local CrateZoneController = require(Client.Controllers.CrateZoneController)
+local CrateAnimController = require(Client.Controllers.CrateAnimController)
 local Theme = require(script.Parent.Parent.Theme)
 local Components = require(script.Parent.Parent.Components)
 local ModalManager = require(script.Parent.Parent.ModalManager)
@@ -66,7 +68,7 @@ local GRID_Y = STAGE_ROW_Y + STAGE_ROW_HEIGHT + 8
 local PROMPT_NAME = "CrateStationPrompt"
 local TOGGLE_KEY = Enum.KeyCode.K
 local TOGGLE_GAMEPAD = Enum.KeyCode.DPadUp
-local REVEAL_STEP = 0.12
+local CRATE_REVEAL_MODAL = "CrateReveal" -- nome registado pela CrateRevealView
 
 local RAINBOW = ColorSequence.new({
 	ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 60, 60)),
@@ -325,9 +327,22 @@ function ArtistsView.Mount()
 	-- ======================= CRATES =======================
 	local pityLabel = Components.makeLabel("Pity", Theme.Fonts.Body, Theme.Colors.TextMuted, 15)
 	pityLabel.Position = UDim2.fromOffset(20, 4)
-	pityLabel.Size = UDim2.new(1, -40, 0, 20)
+	pityLabel.Size = UDim2.new(1, -260, 0, 20)
 	pityLabel.TextXAlignment = Enum.TextXAlignment.Left
 	pityLabel.Parent = cratesPage
+
+	-- "Animação rápida" (guardada no perfil pelo servidor)
+	local fastButton = textButton("FastAnim", "Animação rápida: OFF", Theme.Colors.Background, UDim2.fromOffset(220, 24))
+	fastButton.AnchorPoint = Vector2.new(1, 0)
+	fastButton.Position = UDim2.new(1, -20, 0, 2)
+	fastButton.Parent = cratesPage
+	trove:Connect(fastButton.Activated, function()
+		local snapshot = StateController.Get()
+		local enabled = snapshot ~= nil and snapshot.FastCrateAnim == true
+		if not CrateAnimController.SetFast(not enabled) then
+			shake(fastButton)
+		end
+	end)
 
 	local crateList = Instance.new("ScrollingFrame")
 	crateList.Name = "Crates"
@@ -556,116 +571,7 @@ function ArtistsView.Mount()
 		end
 	end
 
-	-- Revelação dos resultados
-	local reveal = Instance.new("Frame")
-	reveal.Name = "Reveal"
-	reveal.Size = UDim2.fromScale(1, 1)
-	reveal.BackgroundColor3 = Theme.Colors.Background
-	reveal.BackgroundTransparency = 0.05
-	reveal.BorderSizePixel = 0
-	reveal.Visible = false
-	reveal.ZIndex = 20
-	reveal.Active = true
-	Components.addCorner(reveal, UDim.new(0, 16))
-	reveal.Parent = cratesPage
-
-	local revealTitle = Components.makeLabel("Title", Theme.Fonts.Display, Theme.Colors.Gold, 28)
-	revealTitle.Position = UDim2.fromOffset(20, 10)
-	revealTitle.Size = UDim2.new(1, -40, 0, 32)
-	revealTitle.ZIndex = 21
-	revealTitle.Parent = reveal
-
-	local revealGrid = Components.makeFrame("Grid")
-	revealGrid.Position = UDim2.fromOffset(20, 52)
-	revealGrid.Size = UDim2.new(1, -40, 1, -120)
-	revealGrid.ZIndex = 21
-	revealGrid.Parent = reveal
-	local revealLayout = Instance.new("UIGridLayout")
-	revealLayout.CellSize = UDim2.fromOffset(122, 118)
-	revealLayout.CellPadding = UDim2.fromOffset(10, 10)
-	revealLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-	revealLayout.SortOrder = Enum.SortOrder.LayoutOrder
-	revealLayout.Parent = revealGrid
-
-	local continueButton = textButton("Continue", "CONTINUAR", Theme.Colors.Accent, UDim2.fromOffset(220, 48))
-	continueButton.AnchorPoint = Vector2.new(0.5, 1)
-	continueButton.Position = UDim2.new(0.5, 0, 1, -12)
-	continueButton.ZIndex = 21
-	continueButton.Parent = reveal
-
-	local revealToken = 0
-	trove:Connect(continueButton.Activated, function()
-		revealToken += 1
-		reveal.Visible = false
-	end)
-
-	local function showReveal(result: CrateResult)
-		revealToken += 1
-		local token = revealToken
-		for _, child in revealGrid:GetChildren() do
-			if child:IsA("GuiObject") then
-				child:Destroy()
-			end
-		end
-		local crate = ArtistCalc.GetCrate(result.CrateId)
-		revealTitle.Text = (if crate then crate.Name else "Vinyl Crate") .. " · " .. #result.Items .. " artista(s)"
-		reveal.Visible = true
-
-		for index, item in result.Items do
-			local rarity = RaritiesConfig.ById[item.Rarity] or RaritiesConfig.List[1]
-			local def = ArtistCalc.GetArtist(item.ArtistId)
-
-			local tile = Instance.new("Frame")
-			tile.Name = "Item" .. index
-			tile.LayoutOrder = index
-			tile.BorderSizePixel = 0
-			tile.ZIndex = 22
-			tile.Visible = false
-			Components.addCorner(tile, UDim.new(0, 12))
-			applyRarityStyle(tile, rarity)
-			tile.Parent = revealGrid
-
-			local nameLabel = Components.makeLabel("Name", Theme.Fonts.Display, Theme.Colors.Text, 17)
-			nameLabel.Position = UDim2.fromOffset(6, 8)
-			nameLabel.Size = UDim2.new(1, -12, 0, 40)
-			nameLabel.TextWrapped = true
-			nameLabel.ZIndex = 23
-			nameLabel.Text = if def then def.Name else item.ArtistId
-			Components.addStroke(nameLabel, Theme.Colors.Background, 2)
-			nameLabel.Parent = tile
-
-			local rarityLabel = Components.makeLabel("Rarity", Theme.Fonts.Display, Theme.Colors.Text, 18)
-			rarityLabel.Position = UDim2.fromOffset(6, 52)
-			rarityLabel.Size = UDim2.new(1, -12, 0, 24)
-			rarityLabel.ZIndex = 23
-			rarityLabel.Text = rarity.Name
-			Components.addStroke(rarityLabel, Theme.Colors.Background, 2)
-			rarityLabel.Parent = tile
-
-			local outcome = Components.makeLabel("Outcome", Theme.Fonts.Body, Theme.Colors.Text, 14)
-			outcome.Position = UDim2.new(0, 6, 1, -28)
-			outcome.Size = UDim2.new(1, -12, 0, 20)
-			outcome.ZIndex = 23
-			outcome.Text = if item.Outcome == "Deleted" then "APAGADO" elseif item.Outcome == "Fused" then "FUNDIDO ★" else "NOVO"
-			Components.addStroke(outcome, Theme.Colors.Background, 1.5)
-			outcome.Parent = tile
-
-			local tileScale = Instance.new("UIScale")
-			tileScale.Parent = tile
-
-			-- Aparecem um a um; raridades altas demoram mais e "rebentam" maiores
-			local rarityIndex = ArtistCalc.GetRarityIndex(item.Rarity)
-			local extra = if rarityIndex >= RaritiesConfig.IndexById.Mythic then 0.5 else 0
-			task.delay((index - 1) * REVEAL_STEP + extra, function()
-				if token ~= revealToken or tile.Parent == nil then
-					return
-				end
-				tile.Visible = true
-				tileScale.Scale = if extra > 0 then 1.6 else 0.5
-				TweenService:Create(tileScale, Theme.Tween.Toast, { Scale = 1 }):Play()
-			end)
-		end
-	end
+	-- A revelação dos resultados (roleta, grelha x10, cinemática) é da CrateRevealView
 
 	-- ======================= COLEÇÃO =======================
 	local topBar = Components.makeFrame("TopBar")
@@ -833,6 +739,9 @@ function ArtistsView.Mount()
 		if odds.Visible then
 			renderOdds()
 		end
+		local fast = snapshot ~= nil and snapshot.FastCrateAnim == true
+		fastButton.Text = if fast then "Animação rápida: ON" else "Animação rápida: OFF"
+		fastButton.BackgroundColor3 = if fast then Theme.Colors.Success else Theme.Colors.Background
 		local budget = if snapshot then BigNum.deserialize(snapshot.Hype) else BigNum.ZERO
 		local tier = if snapshot then snapshot.StageTier else 1
 		local costFactor = 1 - math.clamp(skills.CrateCostCut, 0, 0.9)
@@ -1135,6 +1044,7 @@ function ArtistsView.Mount()
 			setTab(currentTab)
 		else
 			openedByZone = false
+			ModalManager.NotifyClosed("Artists")
 			local closing = TweenService:Create(popScale, Theme.Tween.FadeOut, { Scale = 0.85 })
 			TweenService:Create(overlay, Theme.Tween.FadeOut, { BackgroundTransparency = 1 }):Play()
 			closing.Completed:Once(function()
@@ -1186,6 +1096,10 @@ function ArtistsView.Mount()
 	-- Zona das Crates: abre ao entrar; fecha ao sair só se foi a zona a abrir e ainda
 	-- estiver em CRATES. Fechar à mão dentro da zona não reabre até sair e voltar.
 	trove:Add(CrateZoneController.Entered:Connect(function()
+		-- Nunca abrir por cima da abertura de uma crate (cancelaria a roleta/cinemática)
+		if ModalManager.GetActive() == CRATE_REVEAL_MODAL then
+			return
+		end
 		if not isOpen then
 			setTab("Crates")
 			setOpen(true)
@@ -1205,14 +1119,10 @@ function ArtistsView.Mount()
 			refreshCrates()
 		end
 	end))
-	trove:Add(ArtistController.CrateOpened:Connect(function(result: CrateResult)
-		if not isOpen then
-			setTab("Crates")
-			setOpen(true)
-		end
+	-- A CrateRevealView abre por cima (e fecha este painel pelo ModalManager)
+	trove:Add(ArtistController.CrateOpened:Connect(function(_result: CrateResult)
 		oddsCrate = nil
 		odds.Visible = false
-		showReveal(result)
 	end))
 	trove:Add(StateController.Changed:Connect(function(_snapshot: Snapshot)
 		if isOpen and currentTab == "Crates" then

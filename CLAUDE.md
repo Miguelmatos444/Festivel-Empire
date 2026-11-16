@@ -28,9 +28,9 @@ Toda a comunicação com o utilizador é em **português de Portugal**.
   - *Lenda (Tiers 10–12):* 10 Palco holográfico (req: 3 WT), 11 Palco estratosférico (req: 4 WT), 12 Palco orbital (req: 5 WT).
   - A troca de palco ocorre no mesmo terreno com animação replicada para todos (maior nas trocas de era).
 - **Mecânica Core (Bass Drop):** Barra de energia enche até ao Bass Drop. Ativar pirotecnia (faíscas frias, CO₂, lasers, lança-chamas) na janela certa dá multiplicadores de 5x a 50x + sinergias entre máquinas.
-- **Gacha (Vinyl Crates):** Abertas nos tiers 1, 4, 7, 10 e especial no 12. **22 raridades**; cada crate dá uma janela de 6 raridades seguidas que avança 4 por crate (Underground 1–6, Ascensão 5–10, Estrelato 9–14, Lenda 13–18, Orbital 17–22) com probabilidades por posição 50/25/13/7/4/1% (`Config/Artists.SlotOdds`). O artista é um dos 5 da crate ao acaso (20% cada) e a raridade é a "versão" dele. Pity em escada: Lendário+ aos 50, Mítico+ aos 250, Divino+ aos 1000, Cósmico+ aos 5000 (cada patamar só conta nas crates onde é a 2.ª–6.ª raridade da janela). Anúncio a todos nas 2 raridades mais raras da crate. Botão "%" no menu mostra as probabilidades (`ArtistCalc.GetCrateOdds`). **Zona das Crates:** círculo r=24 no centro da praça; pisar abre o menu, sair fecha (`CrateZoneController`). Slots de palco: 3 base até 7 (World Tours + Gamepass). Fusão: 3x mesmo artista/raridade/estrelas 1★ -> 2★ (Remix 2.5x); 3x 2★ -> 3★ (Platinum 6x) + Auto-Fuse/Auto-Delete.
+- **Gacha (Vinyl Crates):** Abertas nos tiers 1, 4, 7, 10 e especial no 12. **22 raridades** agrupadas em 5 famílias que mantêm os totais Comum 55% · Raro 28% · Épico 12% · Lendário 4.5% · Mítico+ 0.5% (sem Sorte). A raridade é uma "versão" do artista da família na crate. Pity em escada: Lendário+ aos 50, Mítico+ aos 250, Divino+ aos 1000, Cósmico+ aos 5000. Slots de palco: 3 base até 7 (World Tours + Gamepass). Fusão: 3x mesmo artista/raridade/estrelas (e, a partir da Fase 13, mesma variante) 1★ -> 2★ (Remix 2.5x); 3x 2★ -> 3★ (Platinum 6x) + Auto-Fuse/Auto-Delete.
 - **Prestige (World Tour):** Dá Discos de Platina, faz reset a Hype, equipamento e tier do palco (volta ao Tier 1 — ou ao tier inicial da árvore — com animação de desmontagem), mas mantém artistas, árvore de habilidades, Discos por gastar, pirotecnia desbloqueada e contagem de World Tours. Cada World Tour dá Fama ×1.5 de Hype global.
-  - **Com as Fases 9–11:** também fazem reset os fones comprados com Hype e as Vibes (e a Sorte que vinha delas). Mantêm-se também o Índice e os prémios já reclamados, os contadores de pity, a vitrine, tudo o que foi pago com Robux, badges, sequência diária, missões, códigos usados e leaderboards.
+  - **Com as Fases 9–11:** também fazem reset os fones comprados com Hype e as Vibes (e a Sorte que vinha delas). Mantêm-se também as variantes e traços dos artistas, os Cristais, o Índice e os prémios já reclamados, os contadores de pity, a vitrine, tudo o que foi pago com Robux, badges, sequência diária, missões, códigos usados e leaderboards.
   - A árvore tem de tornar cada run claramente mais rápida que a anterior. Nenhum nó permite saltar requisitos de World Tour.
 
 # REGRAS TÉCNICAS OBRIGATÓRIAS
@@ -80,7 +80,7 @@ Toda a comunicação com o utilizador é em **português de Portugal**.
 | 8 Prestige | World Tour, Discos de Platina, árvore de 15 nós em 4 ramos, Fama ×1.5, reset atómico + animação "Prestige", arco/estandartes no terreno | `Config/Prestige`, `Config/SkillTree`, `PrestigeCalc`, `PrestigeService`, `PrestigeView` |
 
 # PRÓXIMAS FASES (DESIGN APROVADO, POR IMPLEMENTAR)
-Ordem: 9 → 10 → 11 → depois Monetização e polimento. Em cada fase, apresenta primeiro a proposta com os valores para aprovação.
+Ordem: **9 → 10 → 12 → 13 → 11** → depois Monetização e polimento. A Fase 11 (fones, Vibes e Sorte) fica adiada para depois da 13. Em cada fase, apresenta primeiro a proposta com os valores para aprovação.
 
 ## Fase 9 — Minijogo de setas (substitui o Pad de Batidas)
 - **Entrada:** no palco do próprio terreno, "Farmar Hype" (ProximityPrompt ou botão em cima do palco). O boneco fica a atuar no palco, com animação replicada.
@@ -104,7 +104,7 @@ Ordem: 9 → 10 → 11 → depois Monetização e polimento. Em cada fase, apres
 - **Vitrine:** pedestal à frente de cada terreno com um artista do dono (modelo animado, nome, cor da raridade, estrelas, aura nas raridades altas). Modo **Automático** (melhor por raridade → estrelas → multiplicador, atualiza sozinho) ou **Manual** (escolhido do inventário), configurável pelo jogador e guardado no perfil. Se o artista manual deixar de existir, volta a Automático. Usa o contrato de modelos (`Root` + `Visual`, override em `ServerStorage/Assets/Artists/<ArtistId>`) e posição por atributo gravado pelo servidor. LOD de longe.
 - **Migração:** os artistas que o jogador já tem passam a contar como descobertos.
 
-## Fase 11 — Fones, Modo Ouvir, Vibes e Sorte
+## Fase 11 — Fones, Modo Ouvir, Vibes e Sorte (ADIADA: implementar depois da Fase 13)
 - **Fones:** vários níveis comprados com Hype numa loja; cada nível define em `Config/Headphones` preço, requisito de tier (e de World Tours nos mais altos) e Vibes por segundo. Não dão Hype nem Sorte diretamente. Proposta de 8 níveis: esponja → auriculares básicos → estúdio → sem fios → pro → neon → holográficos → cósmicos. Um par equipado de cada vez, visível na cabeça do avatar.
 - **Modo Ouvir:** com fones equipados, dentro do próprio terreno e fora do palco. O boneco fica parado com animação replicada (cabeça ao ritmo, notas a sair dos fones). Ganha Vibes por segundo no tick de 1 Hz; os geradores passivos continuam a dar Hype; o minijogo de setas fica indisponível. Mexer, saltar, sair do terreno ou morrer termina o modo (o servidor confirma a posição). Não conta para o rendimento offline.
 - **Boosts:** durante o Modo Ouvir aparecem botões grandes em posições aleatórias que dão x2 ou x4 às Vibes durante alguns segundos. O servidor decide o momento, o multiplicador (com pesos) e a duração; o cliente envia "cliquei no boost <id>"; o servidor valida dono, prazo, uso único e que o jogador continua no Modo Ouvir. Teto de boosts em Config.
@@ -114,13 +114,84 @@ Ordem: 9 → 10 → 11 → depois Monetização e polimento. Em cada fase, apres
 - **Árvore de Prestige:** acrescentar nós de multiplicador permanente de Vibes, Sorte base e começar a run com os primeiros fones.
 - **HUD:** Vibes e Sorte atuais; replicadas pelo `PlayerStateService` (deltas).
 
-## Integração com a arquitetura (Fases 9–11)
-- Novos Configs: `ArrowGame`, `ArtistIndex`, `Showcase`, `Headphones`, `Vibes`, `Luck`. Novos Calc: `ArrowCalc`, `IndexCalc`, `LuckCalc`.
-- Novos dados no perfil: Vibes, fones comprados/equipados, artistas descobertos, prémios do Índice reclamados, modo/artista da vitrine. Subir `DataVersion` + migração.
-- `SideMenu`: novos botões depois dos atuais (6 Índice, 7 Fones). Teclas sugeridas: I Índice, H Fones; as setas ficam reservadas ao minijogo.
+## Fase 12 — Animação de abertura das Vinyl Crates (roleta)
+- **Roleta horizontal:** ao abrir uma crate, aparece uma faixa de cartas de artistas a passar da direita para a esquerda, que abranda até parar com o artista ganho debaixo do marcador central. Cada carta tem a moldura e o brilho da cor da raridade; som de "tick" a cada carta que passa o marcador, mais espaçado à medida que abranda.
+- **Resultado primeiro, animação depois:** o servidor sorteia o resultado (RNG, Sorte, pity) e entrega o artista **imediatamente** (perfil, coleção, Índice, Auto-Fuse/Delete); só depois envia o resultado ao cliente para animar. Sair do jogo ou fechar a UI a meio nunca faz perder o artista.
+- **Cartas de enchimento:** geradas no cliente com as probabilidades reais da crate (com a Sorte do jogador), para a roleta não sugerir probabilidades falsas. O cliente nunca decide o resultado.
+- **Revelação por família:** cada família de raridade tem a sua paragem: Comum rápida e simples; Raro/Épico com brilho e som próprio; Lendário com flash, confetti e câmara lenta no fim; Mítico+ com ecrã a escurecer e anúncio no servidor.
+- **Carta mistério (ultra-raros):** raridades com probabilidade **na crate** igual ou inferior a `Config/CrateAnimation.MysteryThreshold` (0.01 = 1%) **e** raridade ≥ `MysteryMinRarity` ("Divine") — ou seja Divino (Estrelato), Etéreo (Lenda) e Ómega (Orbital) — aparecem na roleta como **a sombra do artista** (silhueta preta, sem detalhes) com **"???"** a vermelho no lugar da probabilidade e brilho pulsante. Só aparecem quando são o resultado (nunca no enchimento). Quando a roleta para numa: 1 s com o "???" a pulsar e começa a cinemática.
+- **Cinemática do ultra-raro (só para quem abriu, ~12.8 s, timeline em `Config/CrateAnimation.Timeline`):** câmara Scriptable por cima do próprio terreno. 1 Fade para preto (0.6 s, a música corta) → 2 Tempestade (3.0 s: céu todo coberto — `Terrain.Clouds` a 100% só no cliente + teto de nuvens 3D em anéis, `CloudRings` — chuva, 6 relâmpagos grossos com ramificações e duplo clarão, a cair até ao chão ou a atravessar o teto, trovão atrasado 0.35 s, câmara a olhar para cima) → 3 O céu abre-se (1.6 s: as nuvens afastam-se do centro, raios de sol dourados e uma "janela" de céu luminosa no buraco) → 4 O céu racha (2.0 s: rachas na cor da raridade crescem até à borda e o céu estilhaça em pedaços que voam) → 5 Salto (1.4 s: a silhueta sai do rift e cai com rasto de luz, a câmara acompanha) → 6 Aterragem (1.0 s: onda de choque, rachas, cratera, pó e detritos, tremor, impacto grave) → 7 Revelação (2.4 s: a silhueta ganha cor, aura, nome e raridade em letras grandes, câmara em órbita) → 8 Fim (0.8 s: câmara e iluminação repostas). Lighting só local, por tween, reposta exatamente; cratera/rachas/detritos são peças locais temporárias; personagem parada e com ForceField (servidor). Morrer, reset ou abrir outra UI a meio repõe tudo.
+- **Os outros jogadores:** não perdem a câmara; veem uma versão leve por cima do terreno de quem abriu (tempestade, relâmpagos, rift e o artista a aterrar) com LOD (`Config/Lod.Cinematic`: leve até 120, só feixe de luz até 250, nada além). O servidor faz broadcast (`CrateSummon`: jogador, artista, raridade, hora de início) e anuncia "<Jogador> invocou um <Raridade>!" na altura da revelação.
+- **Abrir x10:** em vez de 10 roletas, uma grelha de 10 cartas viradas que se revelam em sequência; as de raridade alta revelam-se por último. Se houver mistérios, a cinemática corre uma vez, para o melhor, e depois os mistérios revelam-se na grelha.
+- **Saltar:** botão "Saltar" que vai direto à revelação (a cinemática pode ser saltada a partir da segunda vez que o jogador a vê; contador no perfil, decidido pelo servidor). Opção "Animação rápida" (no separador Crates, guardada no perfil): roleta de 1.5 s e cinemática só com Fade → Aterragem → Revelação → Fim.
+- **Modelos:** nuvens, rift, cratera e detritos são placeholders por código com override opcional em `ReplicatedStorage/Assets/Cinematics/<Cloud|Rift|Crater|Debris>` (contrato `Root` + `Visual`); os artistas vêm de `ReplicatedStorage/ArtistRigs/<ArtistId>` (copiados pelo servidor a partir de `ServerStorage/Assets/Artists`).
+- **Implementação:** só apresentação no cliente (`CrateAnimController` + `CrateRevealView` + `CrateCinematicController`), registada no `ModalManager`; cartas reutilizadas por pool, tweens em vez de lógica por frame, nada de alocações no RenderStepped. Durações, nº de cartas, easing, cores, limiar e sons em `Config/CrateAnimation`; IDs de áudio em `Config/Audio` (a 0 → sons de fallback). Botão de abrir bloqueado até a animação acabar ou ser saltada (o rate limit do servidor continua a valer).
+- **Telemóvel:** cartas grandes, roleta a ocupar a largura do ecrã, botão "Saltar" fácil de tocar.
+
+## Fase 13 — Variantes Brilhantes, Traços, Cristais, "NOVO!" e Auto-Abrir
+### Variantes Brilhantes
+- Independentes da raridade: cada artista obtido tem uma chance à parte de sair numa variante, sorteada no servidor. Valores em `Config/Variants` (proposta, a confirmar com simulação):
+
+  | Variante | Chance | Aspeto | Bónus |
+  |---|---|---|---|
+  | Dourado | 1/250 | corpo metálico dourado com reflexos | +25% |
+  | Neon | 1/500 | contornos neon a pulsar com a música (`PlaybackLoudness`) | +40% |
+  | Holográfico | 1/1 000 | arco-íris a mudar de cor, partículas em prisma | +60% |
+  | Glitch | 1/2 500 | modelo a "falhar", distorções e píxeis | +100% |
+  | Galáctico | 1/5 000 | textura de estrelas/nebulosa em movimento, aura | +150% |
+  | Infernal | 1/10 000 | chamas, olhos a brilhar, fumo | +250% |
+
+- O bónus da variante multiplica o artista (documentar na ordem dos multiplicadores).
+- Visual aplicado no cliente sobre o modelo (materiais, Highlight, partículas, tweens de cor), no palco, na vitrine, na roleta e no inventário. LOD de longe. Overrides opcionais em `ReplicatedStorage/Assets/Variants/<Variante>`.
+- Na roleta: carta com moldura especial e brilho a percorrê-la; revelação com "BRILHANTE!" e som próprio.
+- Chances visíveis na UI das crates. O Auto-Delete nunca apaga variantes por defeito (opção configurável).
+- **Fusão:** os 3 artistas têm de ter também a mesma variante (mesmo artista/raridade/estrelas/variante); o resultado mantém a variante.
+- **Índice:** separador de variantes (descoberta por artista × variante).
+
+### Traços
+- Cada artista obtido recebe 1 traço sorteado no servidor, com raridade própria (Comum → Lendário) e valor crescente com essa raridade. Pool, pesos e valores em `Config/Traits`. Exemplos:
+  - Voz Potente: +10/20/35/60% de Hype desse artista
+  - Pirómano: −10/15/20/30% de cooldown do lança-chamas
+  - Ritmo Perfeito: bolinhas das setas duram +5/8/12/18%
+  - Energético: +5/10/15/25% de energia do Bass Drop
+  - Showman: +0.5/1/1.5/2 s de boost do Bass Drop
+  - Crowd Surfer: +1/2/3/5% de Hype passivo global
+- Os traços respeitam os **limites somados** já definidos (janela, cooldowns, boost, energia) e entram na cache de taxas (`EconomyService.InvalidateRates`).
+- Traços ligados à Sorte (ex.: "Sortudo") só entram com a Fase 11.
+- **Fusão:** o artista resultante fica com o **melhor** traço dos 3 usados (por raridade do traço, depois valor).
+- Artistas já existentes recebem um traço sorteado na migração.
+
+### Cristais e Estúdio de Remix
+- **Cristais:** moeda nova, ganha ao fundir (manual e Auto-Fuse). Quantidade por família e estrelas em `Config/Crystals` (proposta):
+
+  | Família | → 2★ | → 3★ |
+  |---|---|---|
+  | Comum | 1 | 3 |
+  | Raro | 3 | 9 |
+  | Épico | 10 | 30 |
+  | Lendário | 40 | 120 |
+  | Mítico+ | 150 | 450 |
+
+- Os Cristais **mantêm-se no World Tour**.
+- **Estúdio de Remix:** estação no centro da praça (ProximityPrompt), com um disco holográfico gigante por cima. O jogador escolhe um artista, paga Cristais (custo em Config, pode subir com a raridade do artista) e o traço é sorteado de novo, com as probabilidades visíveis na UI. O novo traço substitui o anterior (mostrar aviso antes de confirmar).
+- Quando sai um traço Lendário, o disco da praça explode em luz (visível a todos, com LOD) e há anúncio no servidor.
+- Só o próprio jogador mexe nos seus artistas; o servidor valida posse, saldo, artista existente e rate limit.
+
+### Selo "NOVO!"
+- Na roleta e na grelha x10, a carta de um artista (ou variante) que o jogador nunca tinha obtido mostra um selo "NOVO!", com um aviso "Novo artista no Índice! 7/12".
+- Usa o registo de artistas descobertos da Fase 10.
+
+### Auto-Abrir (Gamepass)
+- Abre crates seguidas com a animação rápida enquanto houver Hype. O jogador escolhe quando parar: raridade igual ou superior a X, artista NOVO, variante Brilhante, ou Hype insuficiente. Pára também ao sair do jogo ou ao abrir outra UI.
+- O ritmo é controlado pelo servidor (intervalo mínimo em Config). Cada abertura passa pelas mesmas validações que uma abertura manual.
+- `Config/Monetization.AutoOpenGamepassId`; a 0 → funcionalidade desligada (botão escondido).
+
+## Integração com a arquitetura (Fases 9–13)
+- Novos Configs: `ArrowGame`, `ArtistIndex`, `Showcase`, `Headphones`, `Vibes`, `Luck`, `CrateAnimation`, `Variants`, `Traits`, `Crystals`, `Monetization` (se ainda não existir). Novos Calc: `ArrowCalc`, `IndexCalc`, `LuckCalc`, `VariantCalc`, `TraitCalc`.
+- Novos dados no perfil: Vibes, fones comprados/equipados, artistas descobertos (incluindo variantes), prémios do Índice reclamados, modo/artista da vitrine, Cristais, variante e traço de cada artista, opções do Auto-Abrir. Subir `DataVersion` + migração.
+- `SideMenu`: novos botões depois dos atuais (6 Índice, 7 Fones). Teclas sugeridas: I Índice, H Fones; as setas ficam reservadas ao minijogo. O Estúdio de Remix abre-se na praça (ProximityPrompt), não no menu.
 - Invalidar taxas (`EconomyService.InvalidateRates`) ao mudar combo, fones, Vibes ou Sorte quando afetarem cálculos em cache.
-- Comandos de debug a acrescentar: `arrows diff <n>|stats`, `vibes add|set <v>`, `luck`, `phones give <nível>|equip <nível>`, `listen`, `boost force`, `index discover <id> <raridade>|reset|claim`, `showcase auto|<id>`.
-| 9+10 Monetização/Retenção | 4 Gamepasses (Palco VIP, Auto-Batida no servidor, Hype ×2, Agente de Tour), 5 Developer Products (ProcessReceipt idempotente), "Bem-vindo de volta", leaderboards globais na praça, diário 7 dias (20 h / 48 h), 3 missões diárias + 2 semanais por sinais, códigos com expiração/limite global, 10 Badges | `Config/Monetization`, `Config/Retention`, `Config/Codes`, `Config/Badges`, `Config/Leaderboards`, `RetentionCalc`, `RewardService`, `MonetizationService`, `RetentionService`, `AchievementService`, `LeaderboardService`, `MissionsView`, `VipPage`, `WelcomeBackView` |
+- Comandos de debug a acrescentar: `arrows diff <n>|stats`, `vibes add|set <v>`, `luck`, `phones give <nível>|equip <nível>`, `listen`, `boost force`, `index discover <id> <raridade>|reset|claim`, `showcase auto|<id>`, `crate anim <raridade> [x10]` (pré-visualizar a animação sem gastar nem dar nada), `artist give … [variante] [traço]`, `crystals add|set <n>`, `trait reroll <uid> [force <traço> <raridade>]`, `variant odds`, `autoopen on|off` (simula o Gamepass em Studio).
 
 # ARQUITETURA E CONVENÇÕES (respeitar ao continuar)
 - **Bootstrap:** `Main.server.luau` e `Main.client.luau` correm cada `Init()`/`Start()`/`Mount()` isolado com `xpcall` (um módulo com erro não desliga os outros e aparece no Output com traceback). No servidor o núcleo (rede, dados, economia, estado) inicializa antes do mundo (mapa/terrenos/palcos).
@@ -132,9 +203,7 @@ Ordem: 9 → 10 → 11 → depois Monetização e polimento. Em cada fase, apres
 - **Transições de palco:** o servidor troca o modelo e grava atributos `Transition*` no Plot (`Start` em `GetServerTimeNow`, `From`, `To`, `Era`, `Kind`, `WorldTour`, `Id`); cada cliente anima localmente (`StageAnimController`). Tipos: `"Stage"` e `"Prestige"`.
 - **Modelos substituíveis (Blender):** contrato `Model` com `Root` (Part invisível, PrimaryPart, com os Attachments) + `Visual` (geometria). Overrides em `ServerStorage/Assets/…` (`Stages/Tier_XX`, `Plaza`, `PlotSign` com parte `Board`, `Decor/<Era>`, `Prestige/Arch` com parte `Beam`, `Artists/<ArtistId>`; a acrescentar: `Showcase/Pedestal`, `Headphones/<Nível>`). Sem override usa `World/Placeholders`. Medidas para modelação em `docs/Medidas_Modelos_3D_Festival_Empire.pdf`.
 - **Pirotecnia/efeitos:** resolver de emissores aponta para os Attachments `Pyro_<Máquina>_<n>` do palco do dono (fallback à volta da personagem). Distâncias de LOD só em `Config/Lod`.
-- **UI:** botões laterais no `SideMenu` (112×88; ordem: 1 Voltar, 2 Loja, 3 Palcos, 4 Artistas, 5 World Tour, 6 Missões); painéis centrais registam-se no `ModalManager` (só um aberto). Teclas: B loja, P palcos, K artistas, T World Tour, M missões, F drop, V loja VIP. Botão dourado "★ VIP" no canto superior direito (`VipButtonView`) abre a loja no separador VIP.
-- **Sinais de jogo** (para missões/conquistas, nunca progresso vindo do cliente): `EconomyService.Clicked(player, n)`, `BassDropService.DropSucceeded(player, grade)`, `EquipmentService.Purchased`, `GachaService.CratesOpened`, `ArtistService.Fused`, `StageService.StageChanged/StagePlaced`, `PrestigeService.WorldTourCompleted`, `RetentionService.DailyClaimed`.
-- **Recompensas:** tudo passa por `RewardService.Grant` (IncomeMinutes = minutos do Hype/s passivo atual com mínimo de 5 batidas/s; Discs; Crates = aberturas grátis da melhor crate; FillEnergy).
+- **UI:** botões laterais no `SideMenu` (ordem: 1 Voltar, 2 Loja, 3 Palcos, 4 Artistas, 5 World Tour); painéis centrais registam-se no `ModalManager` (só um aberto). Teclas: B loja, P palcos, K artistas, T World Tour, F drop.
 - **Diagnóstico:** `Diag.Log/LogSampled` (prefixo `[Diag:S]`/`[Diag:C]`), ligado por `Config/Debug.NetTrace`.
 
 # ARMADILHAS JÁ ENCONTRADAS (não repetir)
@@ -150,7 +219,7 @@ Ordem: 9 → 10 → 11 → depois Monetização e polimento. Em cada fase, apres
 - Bass Drop: 128 BPM, janela −0.5/+1.0 s, notas PERFEITO/ÓTIMO/BOM/TARDE, boost 12 s.
 - Gacha: crates 1K / 250M / 10T / 1Qa / 25Qa com bónus da era ×1/×2/×4/×8/×15; coleção 300.
 - Prestige: World Tour a partir do Tier 6; Discos = ⌊10 × √(HypeDaRun ÷ 1T) × (1 + 0.25 × (Tier − 6)) × (1 + Contrato)⌋.
-- Fases 9–11: valores por aprovar (setas, prémios do Índice, fones, SorteMax/K). Incluir na simulação o Hype das setas com diferentes precisões, a Sorte ao longo de uma run e o tempo esperado para completar cada raridade do Índice.
+- Fases 9–13: valores por aprovar (setas, prémios do Índice, fones, SorteMax/K, chances e bónus das variantes, pool de traços, Cristais por fusão e custo do Remix). Incluir na simulação o Hype das setas com diferentes precisões, a Sorte ao longo de uma run e o tempo esperado para completar cada raridade do Índice.
 
 # SETUP NO STUDIO
 - `rojo serve` + plugin; o Rojo gere `ReplicatedStorage.Shared`, `ServerScriptService.Server`, `StarterPlayerScripts.Client`. **`ServerStorage` não é gerido pelo Rojo** (modelos do Blender ficam no place).
@@ -160,17 +229,13 @@ Ordem: 9 → 10 → 11 → depois Monetização e polimento. Em cada fase, apres
 
 # COMANDOS DE DEBUG (`/fe <comando>`, admins / Studio)
 `help` · `hype add|set <v>` · `pps <v>|off` · `offline <s>` · `cost …` · `equip list|<id> <nível>` · `energy <n>` · `drop` · `pyro all` · `cd reset` · `stage <1-12> [anim]` · `wt <n>` · `artist give <id> <raridade> [estrelas] [qtd]|clear` · `pity` · `tour [force]` · `discs <n>` · `skills reset` · `plots` · `home` · `state` · `save` · `wipe confirm`
-(A acrescentar nas Fases 9–11: ver "Integração com a arquitetura".)
-`help` · `hype add|set <v>` · `pps <v>|off` · `offline <s>` · `cost …` · `equip list|<id> <nível>` · `energy <n>` · `drop` · `pyro all` · `cd reset` · `stage <1-12> [anim]` · `wt <n>` · `artist give <id> <raridade> [estrelas] [qtd]|clear` · `pity` · `tour [force]` · `discs <n>` · `skills reset` · `daily reset|skip|break` · `missions complete|reroll` · `product <key>` · `gamepass <key> on|off` · `plots` · `home` · `state` · `save` · `wipe confirm`
+(A acrescentar nas Fases 9–12: ver "Integração com a arquitetura".)
 
 # PENDENTE / PRÓXIMOS PASSOS CONHECIDOS
-- Por apagar após OK à Zona das Crates: estações antigas (`Config/Map.Plaza.CrateStationRadius/Angles`, peças `CratePad_*` em `Placeholders`, prompts `CrateStationPrompt` no `GachaService` e handler no `ArtistsView`).
-- Rever custos das crates e curva de Hype numa simulação com as novas janelas de raridade (a Orbital dá sempre Cósmico+).
 - IDs de áudio em `Config/Audio` (a 0 → efeitos pulsam pelo relógio de 128 BPM).
 - Gamepass "Palco VIP": definir `Config/Artists.VipGamepassId`.
+- Gamepass "Auto-Abrir" (Fase 13): definir `Config/Monetization.AutoOpenGamepassId`.
 - Modelos finais do Blender para palcos, praça, placa, decoração, arco, artistas, pedestal da vitrine e fones.
-- IDs reais no site do Roblox: Gamepasses e Developer Products (`Config/Monetization`; o Palco VIP usa `Config/Artists.VipGamepassId`) e Badges (`Config/Badges`). Com id 0 aparecem como "Em breve".
-- Modelos finais do Blender para palcos, praça, placa, decoração, arco e artistas.
 - `Settings.LowVfx` ainda não chega ao cliente (já existe `PyroVfxController.SetLowVfx`).
 - Recalibrar Fama e custos dos Tiers 9–12 com uma simulação que inclua artistas e árvore (só Fama = fim de jogo lento; com Amplificação = mais rápido que a tabela).
 - Antes de publicar: `Config/Debug.NetTrace = false`.

@@ -13,6 +13,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local SoundService = game:GetService("SoundService")
+local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
 
 local Types = require(ReplicatedStorage.Shared.Types)
@@ -75,6 +76,19 @@ end
 function AudioController.IsUsingMusic(): boolean
 	local current = music
 	return current ~= nil and current.IsLoaded and current.IsPlaying
+end
+
+-- Corta (true) ou repõe (false) a música do festival com um fade curto (cinemática)
+local musicMuted = false
+function AudioController.SetMusicMuted(muted: boolean)
+	local current = music
+	if not current or musicMuted == muted then
+		musicMuted = muted
+		return
+	end
+	musicMuted = muted
+	local target = if muted then 0 else AudioConfig.Volumes.Music
+	TweenService:Create(current, TweenInfo.new(AudioConfig.MusicFadeTime), { Volume = target }):Play()
 end
 
 function AudioController.Play(cueName: string)

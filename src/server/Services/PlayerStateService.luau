@@ -68,6 +68,8 @@ local function buildSnapshot(player: Player, data: ProfileData): Snapshot
 		Clicks = data.Stats.Clicks,
 		Equipment = table.clone(data.Equipment),
 		SkillTree = table.clone(data.SkillTree),
+		LowVfx = data.Settings.LowVfx,
+		FastCrateAnim = data.Settings.FastCrateAnim,
 	}
 end
 
@@ -116,6 +118,14 @@ local function buildDelta(previous: Snapshot, current: Snapshot): (StateDelta, b
 	end
 	if previous.Clicks ~= current.Clicks then
 		delta.Clicks = current.Clicks
+		changed = true
+	end
+	if previous.LowVfx ~= current.LowVfx then
+		delta.LowVfx = current.LowVfx
+		changed = true
+	end
+	if previous.FastCrateAnim ~= current.FastCrateAnim then
+		delta.FastCrateAnim = current.FastCrateAnim
 		changed = true
 	end
 

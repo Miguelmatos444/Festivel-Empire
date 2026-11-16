@@ -28,6 +28,7 @@ local BassDropService = require(script.Parent.BassDropService)
 local PlotService = require(script.Parent.PlotService)
 local StageService = require(script.Parent.StageService)
 local ArtistService = require(script.Parent.ArtistService)
+local GachaService = require(script.Parent.GachaService)
 local PrestigeService = require(script.Parent.PrestigeService)
 local MonetizationService = require(script.Parent.MonetizationService)
 local RetentionService = require(script.Parent.RetentionService)
@@ -64,6 +65,8 @@ local COMMAND_ORDER = {
 	"wt",
 	"artist",
 	"pity",
+	"crate",
+	"cinematic",
 	"tour",
 	"discs",
 	"skills",
@@ -419,6 +422,44 @@ commands.artist = {
 	end,
 }
 
+commands.crate = {
+	Usage = "crate anim <raridade> [x10]",
+	Description = "Pré-visualiza a abertura (roleta/grelha; mistério se aplicável) sem gastar nem dar nada",
+	Run = function(player: Player, args: { string }): string
+		local rarityIds: { string } = {}
+		for _, rarity in RaritiesConfig.List do
+			table.insert(rarityIds, rarity.Id)
+		end
+		local rarityId = findIdCaseless(rarityIds, args[2])
+		if args[1] ~= "anim" or not rarityId then
+			return "Uso: /fe crate anim <raridade> [x10]  (ex.: crate anim Omega)"
+		end
+		local count = if args[3] and string.lower(args[3]) == "x10" then 10 else 1
+		return GachaService.Preview(player, rarityId, count, false)
+	end,
+}
+
+commands.cinematic = {
+	Usage = "cinematic [raridade] | cinematic reset",
+	Description = "Pré-visualiza só a cinemática (Ómega por defeito); reset = volta a 0 cinemáticas vistas",
+	Run = function(player: Player, args: { string }): string
+		if args[1] == "reset" then
+			local data = DataService.GetProfile(player)
+			if not data then
+				return "Perfil não carregado."
+			end
+			data.Stats.CinematicsSeen = 0
+			return "Cinemáticas vistas = 0 (a próxima não terá \"Saltar\")."
+		end
+		local rarityIds: { string } = {}
+		for _, rarity in RaritiesConfig.List do
+			table.insert(rarityIds, rarity.Id)
+		end
+		local rarityId = findIdCaseless(rarityIds, args[1]) or "Omega"
+		return GachaService.Preview(player, rarityId, 1, true)
+	end,
+}
+
 commands.pity = {
 	Usage = "pity",
 	Description = "Mostra os contadores de pity",
@@ -661,6 +702,23 @@ local function isAlias(text: string): boolean
 	return table.find(AdminConfig.CommandAliases, first) ~= nil
 end
 
+-- O mesmo comando pode chegar pelas duas vias (TextChatCommand e Player.Chatted):
+-- executa só uma vez por jogador/texto numa janela curta
+local DEDUPE_WINDOW = 1
+local lastCommand: { [Player]: { Text: string, Time: number } } = {}
+
+local function executeOnce(player: Player, text: string)
+	local now = os.clock()
+	local last = lastCommand[player]
+	if last and last.Text == text and now - last.Time < DEDUPE_WINDOW then
+		return
+	end
+	lastCommand[player] = { Text = text, Time = now }
+	execute(player, text)
+end
+
+-- Ligamos sempre as duas vias: um place gerado pelo Rojo pode ter ChatVersion
+-- "Legacy" na propriedade e o Studio a usar o chat novo (ou vice-versa).
 local function setupTextChatCommand()
 	local command = trove:Add(Instance.new("TextChatCommand"))
 	command.Name = "FestivalEmpireAdmin"
@@ -669,7 +727,7 @@ local function setupTextChatCommand()
 	trove:Connect(command.Triggered, function(source: TextSource, text: string)
 		local player = Players:GetPlayerByUserId(source.UserId)
 		if player then
-			execute(player, text)
+			executeOnce(player, text)
 		end
 	end)
 	command.Parent = TextChatService
@@ -677,27 +735,37 @@ end
 
 local function onPlayerAdded(player: Player)
 	adminCache[player] = computeIsAdmin(player)
-	if TextChatService.ChatVersion == Enum.ChatVersion.LegacyChatService then
-		trove:Connect(player.Chatted, function(message: string)
-			if isAlias(message) then
-				execute(player, message)
-			end
-		end)
-	end
+	print(string.format("[Debug] %s admin=%s (comandos: /fe help)", player.Name, tostring(adminCache[player])))
+	trove:Connect(player.Chatted, function(message: string)
+		if isAlias(message) then
+			executeOnce(player, message)
+		end
+	end)
 end
 
 -- Ciclo de vida --------------------------------------------------------------
 
 function DebugService.Init()
-	if TextChatService.ChatVersion ~= Enum.ChatVersion.LegacyChatService then
-		setupTextChatCommand()
+	setupTextChatCommand()
+end
+
+-- Mesmo que o chat: para o Command Bar do servidor em Play
+--   require(game.ServerScriptService.Server.Services.DebugService).Run("crate anim Omega")
+function DebugService.Run(text: string, player: Player?): string
+	local target = player or Players:GetPlayers()[1]
+	if not target then
+		return "Sem jogadores."
 	end
+	adminCache[target] = true
+	execute(target, "/fe " .. text)
+	return "Enviado para " .. target.Name .. " (resposta no ecrã e no Output)"
 end
 
 function DebugService.Start()
 	trove:Connect(Players.PlayerAdded, onPlayerAdded)
 	trove:Connect(Players.PlayerRemoving, function(player: Player)
 		adminCache[player] = nil
+		lastCommand[player] = nil
 	end)
 	for _, player in Players:GetPlayers() do
 		task.spawn(onPlayerAdded, player)

@@ -33,12 +33,14 @@ export type StatsData = {
 	Clicks: number,
 	PlayTime: number, -- segundos
 	BassDrops: number,
+	CinematicsSeen: number, -- cinemáticas de ultra-raro vistas ("Saltar" a partir da 2.ª)
 }
 
 export type SettingsData = {
 	MusicVolume: number,
 	SfxVolume: number,
 	LowVfx: boolean,
+	FastCrateAnim: boolean, -- "Animação rápida" das crates
 	AutoFuse: boolean,
 	AutoDeleteUpTo: number, -- 0 = desligado; N = apaga as raridades 1..N ao saírem
 }
@@ -349,18 +351,37 @@ export type ArtistsSync = {
 	Effects: ArtistEffects,
 }
 
-export type CrateOutcome = "New" | "Deleted" | "Fused"
+export type CrateOutcome = "New" | "Deleted" | "Fused" | "Preview"
 
 export type CrateItem = {
 	ArtistId: string,
 	Rarity: string,
 	Uid: string?,
 	Outcome: CrateOutcome,
+	Mystery: boolean?, -- carta mistério (dispara a cinemática)
 }
 
 export type CrateResult = {
 	CrateId: string,
 	Items: { CrateItem },
+	CanSkip: boolean?, -- "Saltar" disponível na cinemática (decidido pelo servidor)
+	Preview: boolean?, -- pré-visualização de debug: nada foi gasto nem entregue
+	CinematicOnly: boolean?, -- debug "/fe cinematic": salta a roleta
+}
+
+-- Broadcast a todos quando alguém tira uma carta mistério (versão leve da cinemática)
+export type CrateSummon = {
+	UserId: number,
+	ArtistId: string,
+	Rarity: string,
+	StartTime: number, -- GetServerTimeNow() em que a cinemática do dono começa
+}
+
+export type CrateStopEffect = "Simple" | "Glow" | "Flash"
+
+export type CinematicPhase = {
+	Name: string,
+	Duration: number,
 }
 
 -- Mapa / Palcos ----------------------------------------------------------------
@@ -401,6 +422,8 @@ export type PlayerStateSnapshot = {
 	Clicks: number,
 	Equipment: { [string]: number },
 	SkillTree: { [string]: number },
+	LowVfx: boolean,
+	FastCrateAnim: boolean,
 }
 
 export type StateDelta = {
@@ -415,6 +438,8 @@ export type StateDelta = {
 	Clicks: number?,
 	Equipment: { [string]: number }?, -- apenas as entradas alteradas
 	SkillTree: { [string]: number }?, -- árvore completa quando muda
+	LowVfx: boolean?,
+	FastCrateAnim: boolean?,
 }
 
 -- Prestige / World Tour --------------------------------------------------------
