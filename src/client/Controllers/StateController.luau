@@ -11,6 +11,7 @@ local Types = require(ReplicatedStorage.Shared.Types)
 local RemoteDefs = require(ReplicatedStorage.Shared.Net.RemoteDefs)
 local Signal = require(ReplicatedStorage.Shared.Util.Signal)
 local Trove = require(ReplicatedStorage.Shared.Util.Trove)
+local Diag = require(ReplicatedStorage.Shared.Util.Diag)
 local NetController = require(script.Parent.NetController)
 
 type Snapshot = Types.PlayerStateSnapshot
@@ -34,13 +35,15 @@ end
 
 local function applySnapshot(snapshot: Snapshot)
 	state = snapshot
+	Diag.LogSampled("State", "apply", string.format("estado aplicado ao HUD: Hype %.3fe%d", snapshot.Hype.m, snapshot.Hype.e))
 	changed:Fire(snapshot)
 end
 
 local function applyDelta(delta: StateDelta)
 	local current = state
 	if not current then
-		return -- ainda sem snapshot; o snapshot trará o estado completo
+		Diag.Log("State", "delta recebido antes do snapshot — ignorado (o snapshot traz o estado completo)")
+		return
 	end
 	local nextState = table.clone(current)
 	if delta.Hype then
@@ -48,6 +51,12 @@ local function applyDelta(delta: StateDelta)
 	end
 	if delta.TotalHypeEarned then
 		nextState.TotalHypeEarned = delta.TotalHypeEarned
+	end
+	if delta.RunHypeEarned then
+		nextState.RunHypeEarned = delta.RunHypeEarned
+	end
+	if delta.SkillTree then
+		nextState.SkillTree = delta.SkillTree
 	end
 	if delta.HypePerClick then
 		nextState.HypePerClick = delta.HypePerClick
@@ -91,8 +100,27 @@ function StateController.Init()
 end
 
 -- Avisa o servidor de que o cliente está pronto a receber estado
+local CLIENT_READY_RETRY_INTERVAL = 5
+local CLIENT_READY_MAX_ATTEMPTS = 6
+
 function StateController.Start()
-	NetController.Fire(RemoteDefs.Defs.ClientReady)
+	-- Envia ClientReady e repete até chegar o primeiro snapshot (o servidor reenvia o estado)
+	trove:Add(task.spawn(function()
+		for attempt = 1, CLIENT_READY_MAX_ATTEMPTS do
+			NetController.Fire(RemoteDefs.Defs.ClientReady)
+			Diag.Log("State", string.format("ClientReady enviado (tentativa %d) — à espera do snapshot", attempt))
+			task.wait(CLIENT_READY_RETRY_INTERVAL)
+			if state ~= nil then
+				return
+			end
+		end
+		warn(
+			string.format(
+				"[StateController] Nenhum snapshot recebido após %d tentativas de ClientReady. Ver no Output do servidor as linhas [Diag:S][Data]/[State].",
+				CLIENT_READY_MAX_ATTEMPTS
+			)
+		)
+	end))
 end
 
 return StateController

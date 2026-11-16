@@ -15,14 +15,18 @@ export type BigNumData = {
 -- Perfil persistido --------------------------------------------------------
 
 export type ArtistData = {
-	Id: string, -- id do artista em Config (fase do gacha)
+	Id: string, -- id do artista (Config/Artists)
+	Rarity: string, -- id da raridade (Config/Rarities)
 	Stars: number, -- 1★ base, 2★ Remix, 3★ Platinum
-	Locked: boolean, -- protegido contra Auto-Delete / fusão
+	Locked: boolean, -- protegido contra fusão e Auto-Delete
 }
 
+-- Aberturas desde a última raridade >= ao patamar (Config/Rarities.PityLadder)
 export type PityData = {
-	Legendary: number, -- aberturas desde o último Lendário
-	Mythic: number, -- aberturas desde o último Mítico
+	Legendary: number,
+	Mythic: number,
+	Divine: number,
+	Cosmic: number,
 }
 
 export type StatsData = {
@@ -35,18 +39,23 @@ export type SettingsData = {
 	MusicVolume: number,
 	SfxVolume: number,
 	LowVfx: boolean,
+	AutoFuse: boolean,
+	AutoDeleteUpTo: number, -- 0 = desligado; N = apaga as raridades 1..N ao saírem
 }
 
 export type ProfileData = {
 	DataVersion: number,
 	Hype: BigNumData,
-	TotalHypeEarned: BigNumData,
-	PlatinumDiscs: number,
+	TotalHypeEarned: BigNumData, -- de sempre (estatística; nunca reinicia)
+	RunHypeEarned: BigNumData, -- desde o último World Tour (base dos Discos de Platina)
+	PlatinumDiscs: number, -- por gastar
+	TotalDiscsEarned: number,
 	WorldTours: number,
 	StageTier: number,
 	Equipment: { [string]: number }, -- id do equipamento -> nível
 	Artists: { [string]: ArtistData }, -- uid -> artista
 	EquippedArtists: { string }, -- uids nos slots do palco
+	NextArtistUid: number,
 	Pity: PityData,
 	SkillTree: { [string]: number }, -- id do nó -> nível
 	Stats: StatsData,
@@ -125,6 +134,7 @@ export type DropState = {
 	PhaseEnd: number, -- 0 quando a fase não tem fim fixo (Charging)
 	DropTime: number, -- instante do drop (BuildUp/Window)
 	BoostMultiplier: number,
+	WindowBonus: number, -- segundos extra na janela (habilidades dos artistas)
 	Owned: { [string]: boolean },
 	Cooldowns: { [string]: number }, -- id -> instante em que fica pronta
 }
@@ -138,6 +148,113 @@ export type DropResolved = {
 	Multiplier: number,
 	Synergies: { string }, -- ids das sinergias ativas
 	ServerTime: number,
+	SavedBy: string?, -- nome do artista que fez o drop pelo jogador (Salva-Drop)
+}
+
+-- Artistas / Gacha ----------------------------------------------------------------
+
+export type RarityFamily = "Common" | "Rare" | "Epic" | "Legendary" | "Mythic"
+export type RarityEffect = "None" | "Glow" | "Gradient" | "Rainbow"
+
+export type RarityDef = {
+	Id: string,
+	Name: string,
+	Family: RarityFamily,
+	Weight: number, -- probabilidade em % (todas somam 100)
+	Bonus: number, -- bónus de Hype base a 1★ (0.10 = +10%)
+	AbilityScale: number, -- força da habilidade do artista
+	Duet: boolean, -- junta a habilidade do artista Lendário da mesma crate
+	Aura: number, -- +X ao bónus de todos os OUTROS artistas equipados
+	OmegaSave: boolean, -- Salva-Drop com nota PERFEITO
+	Color: Color3,
+	Effect: RarityEffect,
+}
+
+export type AbilityKind =
+	"ClickPower"
+	| "Energy"
+	| "WindowWiden"
+	| "BoostExtend"
+	| "CooldownCut"
+	| "AutoPyro"
+	| "SaveDrop"
+	| "FullShow"
+	| "Aura"
+
+export type AbilityDef = {
+	Kind: AbilityKind,
+	Value: number?, -- fração (ClickPower/Energy/CooldownCut/Aura) ou segundos (WindowWiden/BoostExtend)
+	Machine: string?, -- AutoPyro
+	Grade: DropGrade?, -- SaveDrop
+	Cooldown: number?, -- SaveDrop (segundos)
+}
+
+export type ArtistDef = {
+	Id: string,
+	Name: string,
+	Crate: string,
+	Family: RarityFamily,
+	Ability: AbilityDef?,
+}
+
+export type CrateDef = {
+	Id: string,
+	Name: string,
+	Era: string,
+	RequiredTier: number,
+	Cost: number,
+	EraFactor: number,
+}
+
+export type PityLevel = {
+	Key: string, -- campo em PityData
+	Threshold: number,
+	MinRarity: string,
+	Label: string,
+}
+
+export type SaveDropEffect = {
+	Uid: string,
+	Name: string,
+	Grade: DropGrade,
+	Cooldown: number,
+}
+
+-- Efeito agregado dos artistas equipados (já com limites aplicados)
+export type ArtistEffects = {
+	HypeMultiplier: number,
+	ClickBonus: number,
+	EnergyBonus: number,
+	WindowBonus: number,
+	BoostBonus: number,
+	CooldownCut: number,
+	AutoPyroMask: number,
+	FullShow: boolean,
+	SaveDrops: { SaveDropEffect },
+}
+
+export type ArtistsSync = {
+	Artists: { [string]: ArtistData },
+	Equipped: { string },
+	Slots: number,
+	Pity: PityData,
+	AutoFuse: boolean,
+	AutoDeleteUpTo: number,
+	Effects: ArtistEffects,
+}
+
+export type CrateOutcome = "New" | "Deleted" | "Fused"
+
+export type CrateItem = {
+	ArtistId: string,
+	Rarity: string,
+	Uid: string?,
+	Outcome: CrateOutcome,
+}
+
+export type CrateResult = {
+	CrateId: string,
+	Items: { CrateItem },
 }
 
 -- Mapa / Palcos ----------------------------------------------------------------
@@ -148,10 +265,20 @@ export type StageDef = {
 	Tier: number,
 	Name: string,
 	Era: EraName,
+	Cost: number, -- Hype para comprar este tier (0 = inicial)
 	Width: number, -- X (studs)
 	Depth: number, -- Z, cresce para trás a partir da frente do palco
 	Height: number, -- Y
 	RequiredWorldTours: number,
+}
+
+-- Estado de um tier do ponto de vista do jogador
+export type StageStatus = "Current" | "Owned" | "Available" | "NeedPrevious" | "NeedWorldTours"
+
+export type TransitionTiming = {
+	Dismantle: number, -- segundos a desmontar o palco antigo
+	Pause: number, -- intervalo (troca de era: pirotecnia)
+	Build: number, -- segundos a montar o palco novo
 }
 
 -- Replicação servidor -> cliente ------------------------------------------
@@ -159,6 +286,7 @@ export type StageDef = {
 export type PlayerStateSnapshot = {
 	Hype: BigNumData,
 	TotalHypeEarned: BigNumData,
+	RunHypeEarned: BigNumData,
 	HypePerClick: BigNumData,
 	HypePerSecond: BigNumData,
 	PlatinumDiscs: number,
@@ -166,11 +294,13 @@ export type PlayerStateSnapshot = {
 	StageTier: number,
 	Clicks: number,
 	Equipment: { [string]: number },
+	SkillTree: { [string]: number },
 }
 
 export type StateDelta = {
 	Hype: BigNumData?,
 	TotalHypeEarned: BigNumData?,
+	RunHypeEarned: BigNumData?,
 	HypePerClick: BigNumData?,
 	HypePerSecond: BigNumData?,
 	PlatinumDiscs: number?,
@@ -178,7 +308,64 @@ export type StateDelta = {
 	StageTier: number?,
 	Clicks: number?,
 	Equipment: { [string]: number }?, -- apenas as entradas alteradas
+	SkillTree: { [string]: number }?, -- árvore completa quando muda
 }
+
+-- Prestige / World Tour --------------------------------------------------------
+
+export type SkillBranch = "Sound" | "Recovery" | "Pyro" | "Discs"
+
+export type SkillEffectKey =
+	"HypeMultiplier"
+	| "ClickMultiplier"
+	| "OfflineEfficiency"
+	| "ArtistBonus"
+	| "StartingHype"
+	| "StartingGenerators"
+	| "StartTier"
+	| "StageCostCut"
+	| "StartEnergy"
+	| "BoostBonus"
+	| "WindowBonus"
+	| "CooldownCut"
+	| "DiscBonus"
+	| "CrateCostCut"
+	| "PityReduction"
+
+export type SkillNodeDef = {
+	Id: string,
+	Name: string,
+	Branch: SkillBranch,
+	Row: number, -- posição no ramo (1 = topo)
+	Effect: SkillEffectKey,
+	PerLevel: number, -- valor do efeito por nível
+	MaxLevel: number,
+	BaseCost: number, -- Discos de Platina
+	CostGrowth: number,
+	Requires: string?, -- id do nó exigido
+	RequiresLevel: number?,
+}
+
+-- Efeitos agregados da árvore (valores já multiplicados pelo nível)
+export type SkillEffects = {
+	HypeMultiplier: number,
+	ClickMultiplier: number,
+	OfflineEfficiency: number,
+	ArtistBonus: number,
+	StartingHype: number,
+	StartingGenerators: number,
+	StartTier: number,
+	StageCostCut: number,
+	StartEnergy: number,
+	BoostBonus: number,
+	WindowBonus: number,
+	CooldownCut: number,
+	DiscBonus: number,
+	CrateCostCut: number,
+	PityReduction: number,
+}
+
+export type SkillNodeStatus = "Maxed" | "Available" | "Locked" | "TooExpensive"
 
 export type Notice = { Kind: "OfflineEarnings", Amount: BigNumData, Seconds: number } | { Kind: "Info", Text: string }
 

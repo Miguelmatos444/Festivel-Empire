@@ -18,6 +18,9 @@ local BigNum = require(ReplicatedStorage.Shared.Util.BigNum)
 local Signal = require(ReplicatedStorage.Shared.Util.Signal)
 local Trove = require(ReplicatedStorage.Shared.Util.Trove)
 local EquipmentCalc = require(ReplicatedStorage.Shared.Calc.EquipmentCalc)
+local StageCalc = require(ReplicatedStorage.Shared.Calc.StageCalc)
+local PrestigeCalc = require(ReplicatedStorage.Shared.Calc.PrestigeCalc)
+local Diag = require(ReplicatedStorage.Shared.Util.Diag)
 local ServerNet = require(script.Parent.Parent.Net.ServerNet)
 local DataService = require(script.Parent.DataService)
 
@@ -54,6 +57,7 @@ local trove = Trove.new()
 local debugPassiveOverride: { [Player]: BigNum } = {}
 local rateCache: { [Player]: RateCache } = {}
 local boosts: { [Player]: Boost } = {}
+local artistModifiers: { [Player]: { Hype: number, Click: number } } = {}
 
 local function assertGrowthRate(rate: number)
 	local bounds = EconomyConfig.GrowthRate
@@ -76,12 +80,27 @@ local function getRates(player: Player): RateCache?
 	if not data then
 		return nil
 	end
+	local modifiers = artistModifiers[player]
+	local skills = PrestigeCalc.GetSkillEffects(data.SkillTree)
+	-- Bónus dos artistas, ampliado pela "Aura do Público" da árvore
+	local artistMultiplier = 1 + ((if modifiers then modifiers.Hype else 1) - 1) * (1 + skills.ArtistBonus)
+	local globalMultiplier = StageCalc.GetMultiplier(data.StageTier)
+		* PrestigeCalc.GetFameMultiplier(data.WorldTours)
+		* skills.HypeMultiplier
+		* artistMultiplier
+	local clickMultiplier = (1 + (if modifiers then modifiers.Click else 0)) * skills.ClickMultiplier
 	local rates: RateCache = {
-		PerClick = EquipmentCalc.GetHypePerClick(data.Equipment),
-		PerSecond = EquipmentCalc.GetPassivePerSecond(data.Equipment),
+		PerClick = BigNum.mulNumber(EquipmentCalc.GetHypePerClick(data.Equipment), globalMultiplier * clickMultiplier),
+		PerSecond = BigNum.mulNumber(EquipmentCalc.GetPassivePerSecond(data.Equipment), globalMultiplier),
 	}
 	rateCache[player] = rates
 	return rates
+end
+
+-- Definido pelo ArtistService: multiplicador global de Hype e bónus extra por batida
+function EconomyService.SetArtistModifiers(player: Player, hypeMultiplier: number, clickBonus: number)
+	artistModifiers[player] = { Hype = hypeMultiplier, Click = clickBonus }
+	EconomyService.InvalidateRates(player)
 end
 
 function EconomyService.InvalidateRates(player: Player)
@@ -135,6 +154,7 @@ function EconomyService.AddHype(player: Player, amount: BigNum): boolean
 	end
 	data.Hype = BigNum.add(data.Hype, amount)
 	data.TotalHypeEarned = BigNum.add(data.TotalHypeEarned, amount)
+	data.RunHypeEarned = BigNum.add(data.RunHypeEarned, amount)
 	hypeChanged:Fire(player)
 	return true
 end
@@ -188,7 +208,10 @@ end
 function EconomyService.GrantOfflineEarnings(player: Player, seconds: number): BigNum
 	local offline = EconomyConfig.Offline
 	local counted = math.clamp(seconds, 0, offline.MaxSeconds)
-	local earned = BigNum.mulNumber(EconomyService.GetHypePerSecond(player), counted * offline.Efficiency)
+	local data = DataService.GetProfile(player)
+	local skillBonus = if data then PrestigeCalc.GetSkillEffects(data.SkillTree).OfflineEfficiency else 0
+	local efficiency = math.min(offline.Efficiency + skillBonus, 1) -- "Eco Infinito"
+	local earned = BigNum.mulNumber(EconomyService.GetHypePerSecond(player), counted * efficiency)
 	if earned.m > 0 and EconomyService.AddHype(player, earned) then
 		offlineEarned:Fire(player, earned, counted)
 		return earned
@@ -205,7 +228,8 @@ local function onProfileLoaded(player: Player, data: ProfileData)
 	end
 	local away = os.time() - lastOnline
 	if away >= EconomyConfig.Offline.MinSecondsToReport then
-		EconomyService.GrantOfflineEarnings(player, away)
+		-- Adiado: os outros serviços (ex.: bónus dos artistas) aplicam-se primeiro
+		task.defer(EconomyService.GrantOfflineEarnings, player, away)
 	end
 end
 
@@ -214,6 +238,11 @@ end
 local function onClick(player: Player)
 	local data = DataService.GetProfile(player)
 	if not data then
+		Diag.LogSampled(
+			"Economy",
+			"noprofile:" .. player.UserId,
+			string.format("batida de %s ignorada: perfil ainda não carregado", player.Name)
+		)
 		return
 	end
 	data.Stats.Clicks += 1
@@ -252,6 +281,7 @@ function EconomyService.Init()
 		debugPassiveOverride[player] = nil
 		rateCache[player] = nil
 		boosts[player] = nil
+		artistModifiers[player] = nil
 	end)
 end
 

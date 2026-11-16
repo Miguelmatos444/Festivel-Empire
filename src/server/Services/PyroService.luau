@@ -71,17 +71,19 @@ function PyroService.GetUsable(player: Player, mask: number): { string }
 	return usable
 end
 
-function PyroService.StartCooldowns(player: Player, ids: { string })
+-- cooldownCut: redução (0..1) vinda das habilidades dos artistas ("Montagem Rápida")
+function PyroService.StartCooldowns(player: Player, ids: { string }, cooldownCut: number?)
 	local playerCooldowns = cooldowns[player]
 	if not playerCooldowns then
 		playerCooldowns = {}
 		cooldowns[player] = playerCooldowns
 	end
 	local now = os.clock()
+	local factor = 1 - math.clamp(cooldownCut or 0, 0, 1)
 	for _, id in ids do
 		local def = PyroConfig.ById[id]
 		if def and def.Cooldown > 0 then
-			playerCooldowns[id] = now + def.Cooldown
+			playerCooldowns[id] = now + def.Cooldown * factor
 		end
 	end
 	changed:Fire(player)

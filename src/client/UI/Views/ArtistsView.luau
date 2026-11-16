@@ -1,0 +1,1070 @@
+--!strict
+--[[
+	ArtistsView
+	Painel central "ARTISTAS" com dois separadores:
+	  CRATES   — as 5 Vinyl Crates (cadeado por tier), abertura x1/x10, pity atual e
+	             revelação animada dos resultados com a cor de cada raridade
+	  COLEÇÃO  — grelha de artistas (equipados primeiro, raridade mais alta primeiro),
+	             detalhe com bónus e habilidades, equipar/desequipar, cadeado, fundir,
+	             Fundir tudo, Auto-Fuse e Auto-Delete ("apagar até…")
+	Abre com o botão "ARTISTAS" (canto superior direito), tecla K, D-pad ↑ do comando,
+	ou pelos prompts das estações de Vinyl Crates na praça.
+]]
+
+local Players = game:GetService("Players")
+local ProximityPromptService = game:GetService("ProximityPromptService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+
+local Types = require(ReplicatedStorage.Shared.Types)
+local ArtistsConfig = require(ReplicatedStorage.Shared.Config.Artists)
+local RaritiesConfig = require(ReplicatedStorage.Shared.Config.Rarities)
+local BigNum = require(ReplicatedStorage.Shared.Util.BigNum)
+local NumberFormatter = require(ReplicatedStorage.Shared.Util.NumberFormatter)
+local Trove = require(ReplicatedStorage.Shared.Util.Trove)
+local ArtistCalc = require(ReplicatedStorage.Shared.Calc.ArtistCalc)
+local StageCalc = require(ReplicatedStorage.Shared.Calc.StageCalc)
+local PrestigeCalc = require(ReplicatedStorage.Shared.Calc.PrestigeCalc)
+
+local Client = script.Parent.Parent.Parent
+local StateController = require(Client.Controllers.StateController)
+local ArtistController = require(Client.Controllers.ArtistController)
+local Theme = require(script.Parent.Parent.Theme)
+local Components = require(script.Parent.Parent.Components)
+local ModalManager = require(script.Parent.Parent.ModalManager)
+local SideMenu = require(script.Parent.Parent.SideMenu)
+
+type ArtistData = Types.ArtistData
+type ArtistsSync = Types.ArtistsSync
+type CrateDef = Types.CrateDef
+type CrateResult = Types.CrateResult
+type RarityDef = Types.RarityDef
+type Snapshot = Types.PlayerStateSnapshot
+
+export type Tab = "Crates" | "Collection"
+
+type CrateCard = {
+	Def: CrateDef,
+	Info: TextLabel,
+	One: TextButton,
+	Ten: TextButton,
+	Lock: TextLabel,
+}
+
+local PANEL_SIZE = Vector2.new(740, 640)
+local HEADER = 64
+local DETAILS_HEIGHT = 118
+local STAGE_ROW_Y = 72
+local STAGE_ROW_HEIGHT = 68
+local GRID_Y = STAGE_ROW_Y + STAGE_ROW_HEIGHT + 8
+local PROMPT_NAME = "CrateStationPrompt"
+local TOGGLE_KEY = Enum.KeyCode.K
+local TOGGLE_GAMEPAD = Enum.KeyCode.DPadUp
+local REVEAL_STEP = 0.12
+
+local RAINBOW = ColorSequence.new({
+	ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 60, 60)),
+	ColorSequenceKeypoint.new(0.25, Color3.fromRGB(255, 200, 40)),
+	ColorSequenceKeypoint.new(0.5, Color3.fromRGB(60, 255, 120)),
+	ColorSequenceKeypoint.new(0.75, Color3.fromRGB(40, 200, 255)),
+	ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 60, 200)),
+})
+
+local ArtistsView = {}
+
+local activeTrove: Trove.Trove? = nil
+local setOpenImpl: ((boolean) -> ())? = nil
+local setTabImpl: ((Tab) -> ())? = nil
+local isOpen = false
+
+-- Helpers --------------------------------------------------------------------
+
+local function rarityOf(data: ArtistData): RarityDef
+	return RaritiesConfig.ById[data.Rarity] or RaritiesConfig.List[1]
+end
+
+local function applyRarityStyle(target: GuiObject, rarity: RarityDef)
+	local existing = target:FindFirstChildOfClass("UIGradient")
+	if existing then
+		existing:Destroy()
+	end
+	target.BackgroundColor3 = rarity.Color
+	if rarity.Effect == "Gradient" or rarity.Effect == "Rainbow" then
+		local gradient = Instance.new("UIGradient")
+		gradient.Color = if rarity.Effect == "Rainbow" then RAINBOW else ColorSequence.new(rarity.Color, Color3.new(1, 1, 1))
+		gradient.Rotation = 45
+		gradient.Parent = target
+	end
+end
+
+local function textButton(name: string, text: string, color: Color3, size: UDim2): TextButton
+	local button = Components.makeButton(name, color)
+	button.Size = size
+	button.Font = Theme.Fonts.Display
+	button.TextColor3 = Theme.Colors.Text
+	button.TextScaled = true
+	button.Text = text
+	Components.addCorner(button, UDim.new(0, 10))
+	local constraint = Instance.new("UITextSizeConstraint")
+	constraint.MaxTextSize = 18
+	constraint.Parent = button
+	local padding = Instance.new("UIPadding")
+	padding.PaddingLeft = UDim.new(0, 6)
+	padding.PaddingRight = UDim.new(0, 6)
+	padding.PaddingTop = UDim.new(0, 4)
+	padding.PaddingBottom = UDim.new(0, 4)
+	padding.Parent = button
+	return button
+end
+
+local function shake(target: GuiObject)
+	target.Rotation = 5
+	TweenService:Create(target, TweenInfo.new(0.35, Enum.EasingStyle.Elastic, Enum.EasingDirection.Out), { Rotation = 0 }):Play()
+end
+
+local function sortedUids(sync: ArtistsSync): { string }
+	local equippedSet: { [string]: boolean } = {}
+	for _, uid in sync.Equipped do
+		equippedSet[uid] = true
+	end
+	local uids: { string } = {}
+	for uid in sync.Artists do
+		table.insert(uids, uid)
+	end
+	table.sort(uids, function(a: string, b: string): boolean
+		local artistA, artistB = sync.Artists[a], sync.Artists[b]
+		local equippedA, equippedB = equippedSet[a] == true, equippedSet[b] == true
+		if equippedA ~= equippedB then
+			return equippedA
+		end
+		local rarityA, rarityB = ArtistCalc.GetRarityIndex(artistA.Rarity), ArtistCalc.GetRarityIndex(artistB.Rarity)
+		if rarityA ~= rarityB then
+			return rarityA > rarityB
+		end
+		if artistA.Stars ~= artistB.Stars then
+			return artistA.Stars > artistB.Stars
+		end
+		return (tonumber(a) or 0) < (tonumber(b) or 0)
+	end)
+	return uids
+end
+
+local function effectsSummary(sync: ArtistsSync): string
+	local effects = sync.Effects
+	local parts = { "Hype ×" .. NumberFormatter.format(effects.HypeMultiplier) }
+	if effects.ClickBonus > 0 then
+		table.insert(parts, string.format("Batida +%d%%", math.floor(effects.ClickBonus * 100 + 0.5)))
+	end
+	if effects.EnergyBonus > 0 then
+		table.insert(parts, string.format("Energia +%d%%", math.floor(effects.EnergyBonus * 100 + 0.5)))
+	end
+	if effects.WindowBonus > 0 then
+		table.insert(parts, string.format("Janela +%.2fs", effects.WindowBonus))
+	end
+	if effects.BoostBonus > 0 then
+		table.insert(parts, string.format("Boost +%.1fs", effects.BoostBonus))
+	end
+	if effects.CooldownCut > 0 then
+		table.insert(parts, string.format("Cooldowns −%d%%", math.floor(effects.CooldownCut * 100 + 0.5)))
+	end
+	if effects.AutoPyroMask ~= 0 then
+		table.insert(parts, "Pirotecnia automática")
+	end
+	if #effects.SaveDrops > 0 then
+		table.insert(parts, "Salva-Drop ×" .. #effects.SaveDrops)
+	end
+	return table.concat(parts, "  ·  ")
+end
+
+local function autoDeleteLabel(upTo: number): string
+	if upTo <= 0 then
+		return "Auto-Delete: OFF"
+	end
+	return "Apagar até: " .. RaritiesConfig.List[upTo].Name
+end
+
+-- Montagem -------------------------------------------------------------------
+
+function ArtistsView.Mount()
+	if activeTrove then
+		return
+	end
+	local trove = Trove.new()
+	activeTrove = trove
+
+	local playerGui = Players.LocalPlayer:WaitForChild("PlayerGui")
+
+	-- Botão ARTISTAS (menu lateral, por baixo de PALCOS) --------------------
+	local toggleGui = trove:Add(Instance.new("ScreenGui"))
+	toggleGui.Name = "ArtistsToggleGui"
+	toggleGui.ResetOnSpawn = false
+	toggleGui.ScreenInsets = Enum.ScreenInsets.DeviceSafeInsets
+
+	local toggleHolder = Components.makeFrame("ArtistsToggle")
+	toggleHolder.Size = UDim2.fromOffset(112, 100)
+	trove:Add(toggleHolder)
+
+	local toggleScale = Instance.new("UIScale")
+	toggleScale.Parent = toggleHolder
+
+	local toggleButton = Components.makeButton("Button", Theme.Colors.Panel)
+	toggleButton.Size = UDim2.fromScale(1, 1)
+	Components.addCorner(toggleButton, UDim.new(0, 22))
+	Components.addStroke(toggleButton, Theme.Colors.Gold, 3)
+	toggleButton.Parent = toggleHolder
+
+	local toggleLabel = Components.makeLabel("Label", Theme.Fonts.Display, Theme.Colors.Text, 22)
+	toggleLabel.AnchorPoint = Vector2.new(0.5, 0.5)
+	toggleLabel.Position = UDim2.fromScale(0.5, 0.42)
+	toggleLabel.Size = UDim2.new(0.9, 0, 0, 28)
+	toggleLabel.Text = "ARTISTAS"
+	Components.addStroke(toggleLabel, Theme.Colors.Background, 2)
+	toggleLabel.Parent = toggleButton
+
+	local toggleHint = Components.makeLabel("Hint", Theme.Fonts.Body, Theme.Colors.TextMuted, 16)
+	toggleHint.AnchorPoint = Vector2.new(0.5, 0.5)
+	toggleHint.Position = UDim2.fromScale(0.5, 0.74)
+	toggleHint.Size = UDim2.new(0.8, 0, 0, 18)
+	toggleHint.Text = "[K]"
+	toggleHint.Visible = UserInputService.KeyboardEnabled
+	toggleHint.Parent = toggleButton
+
+	SideMenu.Attach(toggleHolder, 4)
+
+	-- Painel ---------------------------------------------------------------
+	local panelGui = trove:Add(Instance.new("ScreenGui"))
+	panelGui.Name = "ArtistsPanelGui"
+	panelGui.ResetOnSpawn = false
+	panelGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+	panelGui.ScreenInsets = Enum.ScreenInsets.None
+	panelGui.DisplayOrder = 10
+
+	local overlay = Components.makeButton("Overlay", Theme.Colors.Overlay)
+	overlay.Size = UDim2.fromScale(1, 1)
+	overlay.BackgroundTransparency = 1
+	overlay.Visible = false
+	overlay.Parent = panelGui
+
+	local panelHolder = Components.makeFrame("PanelHolder")
+	panelHolder.AnchorPoint = Vector2.new(0.5, 0.5)
+	panelHolder.Position = UDim2.fromScale(0.5, 0.5)
+	panelHolder.Size = UDim2.fromOffset(PANEL_SIZE.X, PANEL_SIZE.Y)
+	panelHolder.Visible = false
+	panelHolder.Parent = panelGui
+
+	local fitScale = Instance.new("UIScale")
+	fitScale.Parent = panelHolder
+
+	local panel = Instance.new("Frame")
+	panel.Name = "Panel"
+	panel.Size = UDim2.fromScale(1, 1)
+	panel.BackgroundColor3 = Theme.Colors.Panel
+	panel.BorderSizePixel = 0
+	panel.Active = true
+	Components.addCorner(panel, UDim.new(0, 20))
+	Components.addStroke(panel, Theme.Colors.Gold, 3)
+	panel.Parent = panelHolder
+
+	local popScale = Instance.new("UIScale")
+	popScale.Parent = panel
+
+	local closeButton = textButton("Close", "X", Theme.Colors.Danger, UDim2.fromOffset(46, 46))
+	closeButton.AnchorPoint = Vector2.new(1, 0)
+	closeButton.Position = UDim2.new(1, -16, 0, 12)
+	closeButton.Parent = panel
+
+	local tabBar = Components.makeFrame("Tabs")
+	tabBar.Position = UDim2.fromOffset(20, 12)
+	tabBar.Size = UDim2.new(1, -100, 0, 46)
+	tabBar.Parent = panel
+	local tabLayout = Instance.new("UIListLayout")
+	tabLayout.FillDirection = Enum.FillDirection.Horizontal
+	tabLayout.Padding = UDim.new(0, 8)
+	tabLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	tabLayout.Parent = tabBar
+
+	local tabButtons: { [Tab]: TextButton } = {
+		Crates = textButton("Crates", "VINYL CRATES", Theme.Colors.Background, UDim2.new(0.5, -4, 1, 0)),
+		Collection = textButton("Collection", "COLEÇÃO", Theme.Colors.Background, UDim2.new(0.5, -4, 1, 0)),
+	}
+	tabButtons.Crates.LayoutOrder = 1
+	tabButtons.Collection.LayoutOrder = 2
+	tabButtons.Crates.Parent = tabBar
+	tabButtons.Collection.Parent = tabBar
+
+	local function makePage(name: string): Frame
+		local page = Components.makeFrame(name)
+		page.Position = UDim2.fromOffset(0, HEADER)
+		page.Size = UDim2.new(1, 0, 1, -HEADER)
+		page.Visible = false
+		page.Parent = panel
+		return page
+	end
+	local cratesPage = makePage("CratesPage")
+	local collectionPage = makePage("CollectionPage")
+
+	-- ======================= CRATES =======================
+	local pityLabel = Components.makeLabel("Pity", Theme.Fonts.Body, Theme.Colors.TextMuted, 15)
+	pityLabel.Position = UDim2.fromOffset(20, 4)
+	pityLabel.Size = UDim2.new(1, -40, 0, 20)
+	pityLabel.TextXAlignment = Enum.TextXAlignment.Left
+	pityLabel.Parent = cratesPage
+
+	local crateList = Instance.new("ScrollingFrame")
+	crateList.Name = "Crates"
+	crateList.Position = UDim2.fromOffset(16, 30)
+	crateList.Size = UDim2.new(1, -32, 1, -46)
+	crateList.BackgroundTransparency = 1
+	crateList.BorderSizePixel = 0
+	crateList.ScrollBarThickness = 6
+	crateList.ScrollBarImageColor3 = Theme.Colors.Gold
+	crateList.CanvasSize = UDim2.new()
+	crateList.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	crateList.Parent = cratesPage
+	local crateLayout = Instance.new("UIListLayout")
+	crateLayout.Padding = UDim.new(0, 8)
+	crateLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	crateLayout.Parent = crateList
+	local cratePadding = Instance.new("UIPadding")
+	cratePadding.PaddingRight = UDim.new(0, 10)
+	cratePadding.Parent = crateList
+
+	local crateCards: { CrateCard } = {}
+	for index, crate in ArtistsConfig.Crates do
+		local card = Instance.new("Frame")
+		card.Name = crate.Id
+		card.LayoutOrder = index
+		card.Size = UDim2.new(1, 0, 0, 92)
+		card.BackgroundColor3 = Theme.Colors.Background
+		card.BorderSizePixel = 0
+		Components.addCorner(card, UDim.new(0, 14))
+		Components.addStroke(card, Theme.Colors.Gold, 1.5).Transparency = 0.4
+		card.Parent = crateList
+
+		local title = Components.makeLabel("Title", Theme.Fonts.Display, Theme.Colors.Gold, 22)
+		title.Position = UDim2.fromOffset(16, 10)
+		title.Size = UDim2.new(1, -300, 0, 26)
+		title.TextXAlignment = Enum.TextXAlignment.Left
+		title.Text = crate.Name
+		title.Parent = card
+
+		local info = Components.makeLabel("Info", Theme.Fonts.Body, Theme.Colors.TextMuted, 15)
+		info.Position = UDim2.fromOffset(16, 40)
+		info.Size = UDim2.new(1, -300, 0, 40)
+		info.TextWrapped = true
+		info.TextXAlignment = Enum.TextXAlignment.Left
+		info.TextYAlignment = Enum.TextYAlignment.Top
+		info.Parent = card
+
+		local one = textButton("One", "x1", Theme.Colors.Success, UDim2.fromOffset(128, 64))
+		one.AnchorPoint = Vector2.new(1, 0.5)
+		one.Position = UDim2.new(1, -148, 0.5, 0)
+		one.Parent = card
+
+		local ten = textButton("Ten", "x10", Theme.Colors.Success, UDim2.fromOffset(128, 64))
+		ten.AnchorPoint = Vector2.new(1, 0.5)
+		ten.Position = UDim2.new(1, -12, 0.5, 0)
+		ten.Parent = card
+
+		local lock = Components.makeLabel("Lock", Theme.Fonts.Display, Theme.Colors.TextMuted, 20)
+		lock.AnchorPoint = Vector2.new(1, 0.5)
+		lock.Position = UDim2.new(1, -12, 0.5, 0)
+		lock.Size = UDim2.fromOffset(264, 40)
+		lock.Visible = false
+		lock.Parent = card
+
+		local entry: CrateCard = { Def = crate, Info = info, One = one, Ten = ten, Lock = lock }
+		table.insert(crateCards, entry)
+
+		for _, pair in { { one, 1 }, { ten, 10 } } do
+			local button = pair[1] :: TextButton
+			local count = pair[2] :: number
+			trove:Connect(button.Activated, function()
+				local snapshot = StateController.Get()
+				if not snapshot or snapshot.StageTier < crate.RequiredTier then
+					shake(button)
+					return
+				end
+				local cut = PrestigeCalc.GetSkillEffects(snapshot.SkillTree).CrateCostCut
+				local cost = BigNum.fromNumber(crate.Cost * count * (1 - math.clamp(cut, 0, 0.9)))
+				if BigNum.lt(BigNum.deserialize(snapshot.Hype), cost) or not ArtistController.OpenCrate(crate.Id, count) then
+					shake(button)
+				end
+			end)
+		end
+	end
+
+	-- Revelação dos resultados
+	local reveal = Instance.new("Frame")
+	reveal.Name = "Reveal"
+	reveal.Size = UDim2.fromScale(1, 1)
+	reveal.BackgroundColor3 = Theme.Colors.Background
+	reveal.BackgroundTransparency = 0.05
+	reveal.BorderSizePixel = 0
+	reveal.Visible = false
+	reveal.ZIndex = 20
+	reveal.Active = true
+	Components.addCorner(reveal, UDim.new(0, 16))
+	reveal.Parent = cratesPage
+
+	local revealTitle = Components.makeLabel("Title", Theme.Fonts.Display, Theme.Colors.Gold, 28)
+	revealTitle.Position = UDim2.fromOffset(20, 10)
+	revealTitle.Size = UDim2.new(1, -40, 0, 32)
+	revealTitle.ZIndex = 21
+	revealTitle.Parent = reveal
+
+	local revealGrid = Components.makeFrame("Grid")
+	revealGrid.Position = UDim2.fromOffset(20, 52)
+	revealGrid.Size = UDim2.new(1, -40, 1, -120)
+	revealGrid.ZIndex = 21
+	revealGrid.Parent = reveal
+	local revealLayout = Instance.new("UIGridLayout")
+	revealLayout.CellSize = UDim2.fromOffset(122, 118)
+	revealLayout.CellPadding = UDim2.fromOffset(10, 10)
+	revealLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	revealLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	revealLayout.Parent = revealGrid
+
+	local continueButton = textButton("Continue", "CONTINUAR", Theme.Colors.Accent, UDim2.fromOffset(220, 48))
+	continueButton.AnchorPoint = Vector2.new(0.5, 1)
+	continueButton.Position = UDim2.new(0.5, 0, 1, -12)
+	continueButton.ZIndex = 21
+	continueButton.Parent = reveal
+
+	local revealToken = 0
+	trove:Connect(continueButton.Activated, function()
+		revealToken += 1
+		reveal.Visible = false
+	end)
+
+	local function showReveal(result: CrateResult)
+		revealToken += 1
+		local token = revealToken
+		for _, child in revealGrid:GetChildren() do
+			if child:IsA("GuiObject") then
+				child:Destroy()
+			end
+		end
+		local crate = ArtistCalc.GetCrate(result.CrateId)
+		revealTitle.Text = (if crate then crate.Name else "Vinyl Crate") .. " · " .. #result.Items .. " artista(s)"
+		reveal.Visible = true
+
+		for index, item in result.Items do
+			local rarity = RaritiesConfig.ById[item.Rarity] or RaritiesConfig.List[1]
+			local def = ArtistCalc.GetArtist(item.ArtistId)
+
+			local tile = Instance.new("Frame")
+			tile.Name = "Item" .. index
+			tile.LayoutOrder = index
+			tile.BorderSizePixel = 0
+			tile.ZIndex = 22
+			tile.Visible = false
+			Components.addCorner(tile, UDim.new(0, 12))
+			applyRarityStyle(tile, rarity)
+			tile.Parent = revealGrid
+
+			local nameLabel = Components.makeLabel("Name", Theme.Fonts.Display, Theme.Colors.Text, 17)
+			nameLabel.Position = UDim2.fromOffset(6, 8)
+			nameLabel.Size = UDim2.new(1, -12, 0, 40)
+			nameLabel.TextWrapped = true
+			nameLabel.ZIndex = 23
+			nameLabel.Text = if def then def.Name else item.ArtistId
+			Components.addStroke(nameLabel, Theme.Colors.Background, 2)
+			nameLabel.Parent = tile
+
+			local rarityLabel = Components.makeLabel("Rarity", Theme.Fonts.Display, Theme.Colors.Text, 18)
+			rarityLabel.Position = UDim2.fromOffset(6, 52)
+			rarityLabel.Size = UDim2.new(1, -12, 0, 24)
+			rarityLabel.ZIndex = 23
+			rarityLabel.Text = rarity.Name
+			Components.addStroke(rarityLabel, Theme.Colors.Background, 2)
+			rarityLabel.Parent = tile
+
+			local outcome = Components.makeLabel("Outcome", Theme.Fonts.Body, Theme.Colors.Text, 14)
+			outcome.Position = UDim2.new(0, 6, 1, -28)
+			outcome.Size = UDim2.new(1, -12, 0, 20)
+			outcome.ZIndex = 23
+			outcome.Text = if item.Outcome == "Deleted" then "APAGADO" elseif item.Outcome == "Fused" then "FUNDIDO ★" else "NOVO"
+			Components.addStroke(outcome, Theme.Colors.Background, 1.5)
+			outcome.Parent = tile
+
+			local tileScale = Instance.new("UIScale")
+			tileScale.Parent = tile
+
+			-- Aparecem um a um; raridades altas demoram mais e "rebentam" maiores
+			local rarityIndex = ArtistCalc.GetRarityIndex(item.Rarity)
+			local extra = if rarityIndex >= RaritiesConfig.IndexById.Mythic then 0.5 else 0
+			task.delay((index - 1) * REVEAL_STEP + extra, function()
+				if token ~= revealToken or tile.Parent == nil then
+					return
+				end
+				tile.Visible = true
+				tileScale.Scale = if extra > 0 then 1.6 else 0.5
+				TweenService:Create(tileScale, Theme.Tween.Toast, { Scale = 1 }):Play()
+			end)
+		end
+	end
+
+	-- ======================= COLEÇÃO =======================
+	local topBar = Components.makeFrame("TopBar")
+	topBar.Position = UDim2.fromOffset(16, 4)
+	topBar.Size = UDim2.new(1, -32, 0, 40)
+	topBar.Parent = collectionPage
+	local topLayout = Instance.new("UIListLayout")
+	topLayout.FillDirection = Enum.FillDirection.Horizontal
+	topLayout.Padding = UDim.new(0, 8)
+	topLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+	topLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	topLayout.Parent = topBar
+
+	local slotsLabel = Components.makeLabel("Slots", Theme.Fonts.Display, Theme.Colors.Gold, 18)
+	slotsLabel.LayoutOrder = 1
+	slotsLabel.Size = UDim2.fromOffset(150, 34)
+	slotsLabel.TextXAlignment = Enum.TextXAlignment.Left
+	slotsLabel.Parent = topBar
+
+	local autoFuseButton = textButton("AutoFuse", "Auto-Fuse: OFF", Theme.Colors.Background, UDim2.fromOffset(150, 36))
+	autoFuseButton.LayoutOrder = 2
+	autoFuseButton.Parent = topBar
+
+	local autoDeleteButton = textButton("AutoDelete", "Auto-Delete: OFF", Theme.Colors.Background, UDim2.fromOffset(190, 36))
+	autoDeleteButton.LayoutOrder = 3
+	autoDeleteButton.Parent = topBar
+
+	local fuseAllButton = textButton("FuseAll", "FUNDIR TUDO", Theme.Colors.Accent, UDim2.fromOffset(150, 36))
+	fuseAllButton.LayoutOrder = 4
+	fuseAllButton.Parent = topBar
+
+	local effectsLabel = Components.makeLabel("Effects", Theme.Fonts.Body, Theme.Colors.Highlight, 14)
+	effectsLabel.Position = UDim2.fromOffset(18, 48)
+	effectsLabel.Size = UDim2.new(1, -36, 0, 18)
+	effectsLabel.TextXAlignment = Enum.TextXAlignment.Left
+	effectsLabel.Parent = collectionPage
+
+	-- Fila "NO PALCO": slots 1..7 (equipados, vazios ou bloqueados) + EQUIPAR MELHORES
+	local stageRow = Instance.new("Frame")
+	stageRow.Name = "StageRow"
+	stageRow.Position = UDim2.fromOffset(16, STAGE_ROW_Y)
+	stageRow.Size = UDim2.new(1, -32, 0, STAGE_ROW_HEIGHT)
+	stageRow.BackgroundColor3 = Theme.Colors.Background
+	stageRow.BorderSizePixel = 0
+	Components.addCorner(stageRow, UDim.new(0, 12))
+	Components.addStroke(stageRow, Theme.Colors.Gold, 1.5).Transparency = 0.3
+	stageRow.Parent = collectionPage
+
+	local stageRowLabel = Components.makeLabel("Label", Theme.Fonts.Display, Theme.Colors.Gold, 14)
+	stageRowLabel.Position = UDim2.fromOffset(10, 4)
+	stageRowLabel.Size = UDim2.fromOffset(60, STAGE_ROW_HEIGHT - 8)
+	stageRowLabel.TextWrapped = true
+	stageRowLabel.Text = "NO\nPALCO"
+	stageRowLabel.Parent = stageRow
+
+	local slotStrip = Components.makeFrame("Slots")
+	slotStrip.Position = UDim2.fromOffset(74, 6)
+	slotStrip.Size = UDim2.new(1, -(74 + 186), 1, -12)
+	slotStrip.Parent = stageRow
+	local slotLayout = Instance.new("UIListLayout")
+	slotLayout.FillDirection = Enum.FillDirection.Horizontal
+	slotLayout.Padding = UDim.new(0, 6)
+	slotLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	slotLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+	slotLayout.Parent = slotStrip
+
+	local equipBestButton = textButton("EquipBest", "EQUIPAR MELHORES", Theme.Colors.Success, UDim2.fromOffset(172, 52))
+	equipBestButton.AnchorPoint = Vector2.new(1, 0.5)
+	equipBestButton.Position = UDim2.new(1, -8, 0.5, 0)
+	equipBestButton.Parent = stageRow
+
+	local grid = Instance.new("ScrollingFrame")
+	grid.Name = "Grid"
+	grid.Position = UDim2.fromOffset(16, GRID_Y)
+	grid.Size = UDim2.new(1, -32, 1, -(GRID_Y + DETAILS_HEIGHT + 16))
+	grid.BackgroundTransparency = 1
+	grid.BorderSizePixel = 0
+	grid.ScrollBarThickness = 6
+	grid.ScrollBarImageColor3 = Theme.Colors.Gold
+	grid.CanvasSize = UDim2.new()
+	grid.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	grid.Parent = collectionPage
+	local gridLayout = Instance.new("UIGridLayout")
+	gridLayout.CellSize = UDim2.fromOffset(104, 112)
+	gridLayout.CellPadding = UDim2.fromOffset(8, 8)
+	gridLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	gridLayout.Parent = grid
+	local gridPadding = Instance.new("UIPadding")
+	gridPadding.PaddingRight = UDim.new(0, 10)
+	gridPadding.PaddingTop = UDim.new(0, 2)
+	gridPadding.Parent = grid
+
+	local emptyLabel = Components.makeLabel("Empty", Theme.Fonts.Body, Theme.Colors.TextMuted, 18)
+	emptyLabel.Position = UDim2.fromOffset(16, GRID_Y + 40)
+	emptyLabel.Size = UDim2.new(1, -32, 0, 40)
+	emptyLabel.Text = "Ainda não tens artistas. Abre uma Vinyl Crate!"
+	emptyLabel.Visible = false
+	emptyLabel.Parent = collectionPage
+
+	-- Detalhe do artista selecionado
+	local details = Instance.new("Frame")
+	details.Name = "Details"
+	details.AnchorPoint = Vector2.new(0, 1)
+	details.Position = UDim2.new(0, 16, 1, -12)
+	details.Size = UDim2.new(1, -32, 0, DETAILS_HEIGHT)
+	details.BackgroundColor3 = Theme.Colors.Background
+	details.BorderSizePixel = 0
+	Components.addCorner(details, UDim.new(0, 14))
+	details.Parent = collectionPage
+
+	local detailName = Components.makeLabel("Name", Theme.Fonts.Display, Theme.Colors.Text, 22)
+	detailName.Position = UDim2.fromOffset(14, 8)
+	detailName.Size = UDim2.new(1, -260, 0, 26)
+	detailName.TextXAlignment = Enum.TextXAlignment.Left
+	detailName.Parent = details
+
+	local detailText = Instance.new("TextLabel")
+	detailText.Name = "Text"
+	detailText.BackgroundTransparency = 1
+	detailText.Position = UDim2.fromOffset(14, 36)
+	detailText.Size = UDim2.new(1, -260, 1, -42)
+	detailText.Font = Theme.Fonts.Body
+	detailText.TextSize = 14
+	detailText.TextWrapped = true
+	detailText.TextXAlignment = Enum.TextXAlignment.Left
+	detailText.TextYAlignment = Enum.TextYAlignment.Top
+	detailText.TextColor3 = Theme.Colors.TextMuted
+	detailText.Text = "Seleciona um artista para ver o detalhe."
+	detailText.Parent = details
+
+	local equipButton = textButton("Equip", "EQUIPAR", Theme.Colors.Success, UDim2.fromOffset(112, 46))
+	equipButton.AnchorPoint = Vector2.new(1, 0)
+	equipButton.Position = UDim2.new(1, -126, 0, 10)
+	equipButton.Parent = details
+
+	local lockButton = textButton("Lock", "🔒", Theme.Colors.Panel, UDim2.fromOffset(112, 46))
+	lockButton.AnchorPoint = Vector2.new(1, 0)
+	lockButton.Position = UDim2.new(1, -10, 0, 10)
+	lockButton.Parent = details
+
+	local fuseButton = textButton("Fuse", "FUNDIR 3→1", Theme.Colors.Accent, UDim2.fromOffset(228, 44))
+	fuseButton.AnchorPoint = Vector2.new(1, 1)
+	fuseButton.Position = UDim2.new(1, -10, 1, -10)
+	fuseButton.Parent = details
+
+	-- Estado / desenho ---------------------------------------------------------
+	local currentTab: Tab = "Crates"
+	local selectedUid: string? = nil
+	local collectionDirty = true
+
+	local function refreshCrates()
+		local snapshot = StateController.Get()
+		local sync = ArtistController.Get()
+		local skills = PrestigeCalc.GetSkillEffects(if snapshot then snapshot.SkillTree else {})
+		if sync then
+			local counters = (sync.Pity :: unknown) :: { [string]: number }
+			local parts: { string } = {}
+			for index, level in RaritiesConfig.PityLadder do
+				local threshold = if index == 1 then math.max(1, level.Threshold - skills.PityReduction) else level.Threshold
+				table.insert(parts, string.format("%s %d/%d", level.Label, counters[level.Key] or 0, threshold))
+			end
+			pityLabel.Text = "Pity — " .. table.concat(parts, "  ·  ")
+		end
+		local budget = if snapshot then BigNum.deserialize(snapshot.Hype) else BigNum.ZERO
+		local tier = if snapshot then snapshot.StageTier else 1
+		local costFactor = 1 - math.clamp(skills.CrateCostCut, 0, 0.9)
+		for _, card in crateCards do
+			local crate = card.Def
+			local unlocked = tier >= crate.RequiredTier
+			card.One.Visible = unlocked
+			card.Ten.Visible = unlocked
+			card.Lock.Visible = not unlocked
+			if unlocked then
+				local unitCost = crate.Cost * costFactor
+				card.Info.Text = string.format(
+					"%s por abertura · bónus da era ×%d · desbloqueada no Tier %d",
+					NumberFormatter.format(unitCost),
+					crate.EraFactor,
+					crate.RequiredTier
+				)
+				card.One.Text = "x1  " .. NumberFormatter.format(unitCost)
+				card.Ten.Text = "x10  " .. NumberFormatter.format(unitCost * 10)
+				card.One.BackgroundColor3 = if BigNum.gte(budget, BigNum.fromNumber(unitCost))
+					then Theme.Colors.Success
+					else Theme.Colors.Disabled
+				card.Ten.BackgroundColor3 = if BigNum.gte(budget, BigNum.fromNumber(unitCost * 10))
+					then Theme.Colors.Success
+					else Theme.Colors.Disabled
+			else
+				card.Info.Text = string.format("Bónus da era ×%d", crate.EraFactor)
+				card.Lock.Text = string.format("🔒 Tier %d · %s", crate.RequiredTier, StageCalc.GetDef(crate.RequiredTier).Name)
+			end
+		end
+	end
+
+	local function refreshDetails(sync: ArtistsSync)
+		local uid = selectedUid
+		local artist = if uid then sync.Artists[uid] else nil
+		equipButton.Visible = artist ~= nil
+		lockButton.Visible = artist ~= nil
+		fuseButton.Visible = artist ~= nil
+		if not uid or not artist then
+			detailName.Text = "Detalhe"
+			detailText.Text = "Seleciona um artista para ver o detalhe."
+			return
+		end
+		local def = ArtistCalc.GetArtist(artist.Id)
+		local rarity = rarityOf(artist)
+		detailName.Text = string.format("%s · %s %s", if def then def.Name else artist.Id, rarity.Name, string.rep("★", artist.Stars))
+		detailName.TextColor3 = rarity.Color
+
+		local lines = { string.format("Bónus de Hype: +%s%%", NumberFormatter.format(ArtistCalc.GetBonus(artist) * 100)) }
+		for _, ability in ArtistCalc.GetAbilities(artist) do
+			table.insert(lines, ArtistCalc.DescribeAbility(ability))
+		end
+		if artist.Stars < ArtistsConfig.MaxStars then
+			local copies = 0
+			local key = ArtistCalc.GroupKey(artist)
+			for _, other in sync.Artists do
+				if ArtistCalc.GroupKey(other) == key and not other.Locked then
+					copies += 1
+				end
+			end
+			table.insert(lines, string.format("Cópias iguais para fundir: %d/%d", copies, ArtistsConfig.FuseCount))
+			fuseButton.BackgroundColor3 = if copies >= ArtistsConfig.FuseCount and not artist.Locked
+				then Theme.Colors.Accent
+				else Theme.Colors.Disabled
+			fuseButton.Text = string.format("FUNDIR → %d★", artist.Stars + 1)
+		else
+			table.insert(lines, "Estrelas máximas (Platinum).")
+			fuseButton.BackgroundColor3 = Theme.Colors.Disabled
+			fuseButton.Text = "MÁXIMO"
+		end
+		detailText.Text = table.concat(lines, "\n")
+
+		local equipped = table.find(sync.Equipped, uid) ~= nil
+		equipButton.Text = if equipped then "DESEQUIPAR" else "EQUIPAR"
+		equipButton.BackgroundColor3 = if equipped
+			then Theme.Colors.Danger
+			elseif #sync.Equipped < sync.Slots then Theme.Colors.Success
+			else Theme.Colors.Disabled
+		lockButton.Text = if artist.Locked then "🔒 PROTEGIDO" else "🔓 LIVRE"
+	end
+
+	local gridTrove = trove:Extend() -- tiles e ligações da grelha, limpos a cada reconstrução
+
+	local function rebuildGrid(sync: ArtistsSync)
+		collectionDirty = false
+		gridTrove:Clean()
+		local uids = sortedUids(sync)
+		emptyLabel.Visible = #uids == 0
+		if selectedUid and not sync.Artists[selectedUid] then
+			selectedUid = nil
+		end
+
+		for order, uid in uids do
+			local artist = sync.Artists[uid]
+			local rarity = rarityOf(artist)
+			local def = ArtistCalc.GetArtist(artist.Id)
+			local equipped = table.find(sync.Equipped, uid) ~= nil
+
+			local tile = gridTrove:Add(Components.makeButton("Artist_" .. uid, Theme.Colors.Background))
+			tile.LayoutOrder = order
+			Components.addCorner(tile, UDim.new(0, 12))
+			local stroke = Components.addStroke(tile, if uid == selectedUid then Theme.Colors.Gold else rarity.Color, if uid == selectedUid then 3 else 1.5)
+			stroke.Transparency = 0
+			tile.Parent = grid
+
+			local band = Instance.new("Frame")
+			band.Name = "Band"
+			band.Size = UDim2.new(1, 0, 0, 30)
+			band.BorderSizePixel = 0
+			Components.addCorner(band, UDim.new(0, 12))
+			applyRarityStyle(band, rarity)
+			band.Parent = tile
+
+			local rarityLabel = Components.makeLabel("Rarity", Theme.Fonts.Display, Theme.Colors.Text, 15)
+			rarityLabel.Size = UDim2.new(1, -8, 0, 26)
+			rarityLabel.Position = UDim2.fromOffset(4, 2)
+			rarityLabel.Text = rarity.Name
+			Components.addStroke(rarityLabel, Theme.Colors.Background, 1.5)
+			rarityLabel.Parent = band
+
+			local nameLabel = Components.makeLabel("Name", Theme.Fonts.Body, Theme.Colors.Text, 14)
+			nameLabel.Position = UDim2.fromOffset(4, 34)
+			nameLabel.Size = UDim2.new(1, -8, 0, 36)
+			nameLabel.TextWrapped = true
+			nameLabel.Text = if def then def.Name else artist.Id
+			nameLabel.Parent = tile
+
+			local starsLabel = Components.makeLabel("Stars", Theme.Fonts.Display, Theme.Colors.Gold, 16)
+			starsLabel.Position = UDim2.fromOffset(4, 72)
+			starsLabel.Size = UDim2.new(1, -8, 0, 18)
+			starsLabel.Text = string.rep("★", artist.Stars) .. string.rep("☆", ArtistsConfig.MaxStars - artist.Stars)
+			starsLabel.Parent = tile
+
+			local tags: { string } = {}
+			if equipped then
+				table.insert(tags, "NO PALCO")
+			end
+			if artist.Locked then
+				table.insert(tags, "🔒")
+			end
+			local tagLabel = Components.makeLabel("Tags", Theme.Fonts.Body, Theme.Colors.Success, 12)
+			tagLabel.Position = UDim2.fromOffset(4, 92)
+			tagLabel.Size = UDim2.new(1, -8, 0, 16)
+			tagLabel.Text = table.concat(tags, " ")
+			tagLabel.Parent = tile
+
+			gridTrove:Connect(tile.Activated, function()
+				selectedUid = uid
+				local latest = ArtistController.Get()
+				if latest then
+					task.defer(rebuildGrid, latest) -- adiado: não destruir o botão dentro do seu próprio evento
+				end
+			end)
+		end
+
+		-- Fila "NO PALCO"
+		for slot = 1, ArtistsConfig.MaxSlots do
+			local uid = sync.Equipped[slot]
+			local artist = if uid then sync.Artists[uid] else nil
+			local unlocked = slot <= sync.Slots
+
+			local slotButton = gridTrove:Add(Components.makeButton("Slot_" .. slot, Theme.Colors.Panel))
+			slotButton.LayoutOrder = slot
+			slotButton.Size = UDim2.fromOffset(52, 52)
+			Components.addCorner(slotButton, UDim.new(0, 10))
+			slotButton.Parent = slotStrip
+
+			local slotLabel = Components.makeLabel("Label", Theme.Fonts.Body, Theme.Colors.Text, 11)
+			slotLabel.Size = UDim2.new(1, -4, 1, -4)
+			slotLabel.Position = UDim2.fromOffset(2, 2)
+			slotLabel.TextWrapped = true
+			slotLabel.Parent = slotButton
+
+			if uid and artist then
+				local rarity = rarityOf(artist)
+				local def = ArtistCalc.GetArtist(artist.Id)
+				applyRarityStyle(slotButton, rarity)
+				local stroke = Components.addStroke(slotButton, if uid == selectedUid then Theme.Colors.Gold else Theme.Colors.Text, if uid == selectedUid then 3 else 1)
+				stroke.Transparency = if uid == selectedUid then 0 else 0.5
+				slotLabel.Text = (if def then def.Name else artist.Id) .. "\n" .. string.rep("★", artist.Stars)
+				Components.addStroke(slotLabel, Theme.Colors.Background, 1.5)
+				gridTrove:Connect(slotButton.Activated, function()
+					selectedUid = uid
+					local latest = ArtistController.Get()
+					if latest then
+						task.defer(rebuildGrid, latest)
+					end
+				end)
+			elseif unlocked then
+				slotLabel.Text = "vazio"
+				slotLabel.TextColor3 = Theme.Colors.TextMuted
+				Components.addStroke(slotButton, Theme.Colors.TextMuted, 1).Transparency = 0.5
+			else
+				slotButton.BackgroundColor3 = Theme.Colors.Disabled
+				slotLabel.Text = "🔒"
+				slotLabel.TextColor3 = Theme.Colors.TextMuted
+			end
+		end
+
+		slotsLabel.Text = string.format("Palco: %d/%d slots", #sync.Equipped, sync.Slots)
+		autoFuseButton.Text = if sync.AutoFuse then "Auto-Fuse: ON" else "Auto-Fuse: OFF"
+		autoFuseButton.BackgroundColor3 = if sync.AutoFuse then Theme.Colors.Success else Theme.Colors.Background
+		autoDeleteButton.Text = autoDeleteLabel(sync.AutoDeleteUpTo)
+		autoDeleteButton.BackgroundColor3 = if sync.AutoDeleteUpTo > 0 then Theme.Colors.Danger else Theme.Colors.Background
+		effectsLabel.Text = effectsSummary(sync)
+		refreshDetails(sync)
+	end
+
+	local function refreshCollection()
+		local sync = ArtistController.Get()
+		if sync and isOpen and currentTab == "Collection" then
+			rebuildGrid(sync)
+		else
+			collectionDirty = true
+		end
+	end
+
+	-- Ações da coleção -------------------------------------------------------------
+	trove:Connect(equipButton.Activated, function()
+		local sync = ArtistController.Get()
+		local uid = selectedUid
+		if not sync or not uid then
+			return
+		end
+		if table.find(sync.Equipped, uid) then
+			ArtistController.Unequip(uid)
+		elseif #sync.Equipped >= sync.Slots then
+			shake(equipButton)
+		else
+			ArtistController.Equip(uid)
+		end
+	end)
+	trove:Connect(lockButton.Activated, function()
+		local sync = ArtistController.Get()
+		local uid = selectedUid
+		local artist = if sync and uid then sync.Artists[uid] else nil
+		if uid and artist then
+			ArtistController.SetLock(uid, not artist.Locked)
+		end
+	end)
+	trove:Connect(fuseButton.Activated, function()
+		local uid = selectedUid
+		if not uid or fuseButton.BackgroundColor3 == Theme.Colors.Disabled then
+			shake(fuseButton)
+			return
+		end
+		ArtistController.Fuse(uid)
+	end)
+	trove:Connect(fuseAllButton.Activated, function()
+		ArtistController.Fuse("all")
+	end)
+	trove:Connect(equipBestButton.Activated, function()
+		local sync = ArtistController.Get()
+		local hasArtists = sync ~= nil and next(sync.Artists) ~= nil
+		if not hasArtists or not ArtistController.EquipBest() then
+			shake(equipBestButton)
+		end
+	end)
+	trove:Connect(autoFuseButton.Activated, function()
+		local sync = ArtistController.Get()
+		if sync then
+			ArtistController.SetAutoFuse(not sync.AutoFuse)
+		end
+	end)
+	trove:Connect(autoDeleteButton.Activated, function()
+		local sync = ArtistController.Get()
+		if sync then
+			ArtistController.SetAutoDelete((sync.AutoDeleteUpTo + 1) % (ArtistsConfig.AutoDeleteMaxIndex + 1))
+		end
+	end)
+
+	-- Separadores / abrir / fechar --------------------------------------------------
+	local function setTab(tab: Tab)
+		currentTab = tab
+		cratesPage.Visible = tab == "Crates"
+		collectionPage.Visible = tab == "Collection"
+		for name, button in tabButtons do
+			button.BackgroundColor3 = if name == tab then Theme.Colors.Accent else Theme.Colors.Background
+		end
+		if tab == "Crates" then
+			refreshCrates()
+		elseif collectionDirty then
+			refreshCollection()
+		end
+	end
+	setTabImpl = setTab
+
+	local function setOpen(open: boolean)
+		if isOpen == open then
+			return
+		end
+		isOpen = open
+		if open then
+			ModalManager.NotifyOpened("Artists")
+			overlay.Visible = true
+			panelHolder.Visible = true
+			popScale.Scale = 0.85
+			TweenService:Create(popScale, Theme.Tween.Toast, { Scale = 1 }):Play()
+			TweenService:Create(overlay, Theme.Tween.Fast, { BackgroundTransparency = Theme.Shop.OverlayTransparency }):Play()
+			setTab(currentTab)
+		else
+			local closing = TweenService:Create(popScale, Theme.Tween.FadeOut, { Scale = 0.85 })
+			TweenService:Create(overlay, Theme.Tween.FadeOut, { BackgroundTransparency = 1 }):Play()
+			closing.Completed:Once(function()
+				if not isOpen then
+					overlay.Visible = false
+					panelHolder.Visible = false
+				end
+			end)
+			closing:Play()
+		end
+	end
+	setOpenImpl = setOpen
+	ModalManager.Register("Artists", function()
+		setOpen(false)
+	end)
+	trove:Add(function()
+		ModalManager.Unregister("Artists")
+	end)
+
+	for name, button in tabButtons do
+		trove:Connect(button.Activated, function()
+			setTab(name)
+		end)
+	end
+	trove:Connect(toggleButton.Activated, function()
+		setOpen(not isOpen)
+	end)
+	trove:Connect(closeButton.Activated, function()
+		setOpen(false)
+	end)
+	trove:Connect(overlay.Activated, function()
+		setOpen(false)
+	end)
+	trove:Connect(UserInputService.InputBegan, function(input: InputObject, gameProcessed: boolean)
+		if gameProcessed then
+			return
+		end
+		if input.KeyCode == TOGGLE_KEY or input.KeyCode == TOGGLE_GAMEPAD then
+			setOpen(not isOpen)
+		end
+	end)
+	trove:Connect(ProximityPromptService.PromptTriggered, function(prompt: ProximityPrompt, player: Player)
+		if prompt.Name == PROMPT_NAME and player == Players.LocalPlayer then
+			setTab("Crates")
+			setOpen(true)
+		end
+	end)
+
+	trove:Add(ArtistController.Changed:Connect(function(_sync: ArtistsSync)
+		refreshCollection()
+		if isOpen and currentTab == "Crates" then
+			refreshCrates()
+		end
+	end))
+	trove:Add(ArtistController.CrateOpened:Connect(function(result: CrateResult)
+		if not isOpen then
+			setTab("Crates")
+			setOpen(true)
+		end
+		showReveal(result)
+	end))
+	trove:Add(StateController.Changed:Connect(function(_snapshot: Snapshot)
+		if isOpen and currentTab == "Crates" then
+			refreshCrates()
+		end
+	end))
+
+	local function updateScales()
+		fitScale.Scale = Components.fitScale(panelGui.AbsoluteSize, PANEL_SIZE, Theme.Shop.ScreenFill)
+		toggleScale.Scale = Components.computeScale(toggleGui.AbsoluteSize)
+	end
+	trove:Connect(panelGui:GetPropertyChangedSignal("AbsoluteSize"), updateScales)
+	trove:Connect(toggleGui:GetPropertyChangedSignal("AbsoluteSize"), updateScales)
+
+	toggleGui.Parent = playerGui
+	panelGui.Parent = playerGui
+	updateScales()
+	setTab("Crates")
+end
+
+function ArtistsView.Open(tab: Tab?)
+	local setTab = setTabImpl
+	if tab and setTab then
+		setTab(tab)
+	end
+	local setOpen = setOpenImpl
+	if setOpen then
+		setOpen(true)
+	end
+end
+
+function ArtistsView.Close()
+	local setOpen = setOpenImpl
+	if setOpen then
+		setOpen(false)
+	end
+end
+
+return ArtistsView

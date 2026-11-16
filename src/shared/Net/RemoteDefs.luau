@@ -10,6 +10,9 @@ local Types = require(script.Parent.Parent.Types)
 local EconomyConfig = require(script.Parent.Parent.Config.Economy)
 local EquipmentConfig = require(script.Parent.Parent.Config.Equipment)
 local PyroConfig = require(script.Parent.Parent.Config.Pyro)
+local StagesConfig = require(script.Parent.Parent.Config.Stages)
+local ArtistsConfig = require(script.Parent.Parent.Config.Artists)
+local SkillTreeConfig = require(script.Parent.Parent.Config.SkillTree)
 
 type RemoteDef = Types.RemoteDef
 
@@ -20,13 +23,28 @@ export type Registry = {
 	TriggerDrop: RemoteDef,
 	BuyPyro: RemoteDef,
 	ReturnToPlot: RemoteDef,
+	BuyStage: RemoteDef,
+	OpenCrate: RemoteDef,
+	EquipArtist: RemoteDef,
+	EquipBestArtists: RemoteDef,
+	UnequipArtist: RemoteDef,
+	SetArtistLock: RemoteDef,
+	FuseArtists: RemoteDef,
+	SetAutoFuse: RemoteDef,
+	SetAutoDelete: RemoteDef,
+	BuySkillNode: RemoteDef,
+	DoWorldTour: RemoteDef,
 	StateSnapshot: RemoteDef,
 	StateDelta: RemoteDef,
 	Notify: RemoteDef,
 	PurchaseResult: RemoteDef,
 	DropState: RemoteDef,
 	DropResolved: RemoteDef,
+	ArtistsSync: RemoteDef,
+	CrateResult: RemoteDef,
 }
+
+local UID_ARG: Types.ArgSpec = { Kind = "string", MaxLength = 12, Pattern = "^%d+$" }
 
 local BUY_MODES: { string } = { "x1", "x10", "x100", "Max" }
 
@@ -41,7 +59,7 @@ local Defs: Registry = {
 	ClientReady = {
 		Name = "ClientReady",
 		Direction = "ClientToServer",
-		RateLimit = { PerSecond = 0.1, Burst = 2 },
+		RateLimit = { PerSecond = 0.25, Burst = 3 }, -- permite as repetições do cliente (a cada 5 s)
 		Args = {},
 	},
 	BuyEquipment = { -- (equipmentId: string, mode: BuyMode)
@@ -78,6 +96,77 @@ local Defs: Registry = {
 		RateLimit = { PerSecond = 1 / 3, Burst = 1 },
 		Args = {},
 	},
+	BuyStage = { -- (targetTier: inteiro) — tem de ser exatamente o tier atual + 1
+		Name = "BuyStage",
+		Direction = "ClientToServer",
+		RateLimit = { PerSecond = 1, Burst = 2 },
+		Args = {
+			{ Kind = "number", Integer = true, Min = 2, Max = StagesConfig.MaxTier },
+		},
+	},
+	OpenCrate = { -- (crateId, count: 1 | 10)
+		Name = "OpenCrate",
+		Direction = "ClientToServer",
+		RateLimit = { PerSecond = 2, Burst = 4 },
+		Args = {
+			{ Kind = "enum", Values = ArtistsConfig.CrateIds },
+			{ Kind = "number", Integer = true, Min = 1, Max = 10 },
+		},
+	},
+	EquipArtist = { -- (uid)
+		Name = "EquipArtist",
+		Direction = "ClientToServer",
+		RateLimit = { PerSecond = 6, Burst = 10 },
+		Args = { UID_ARG },
+	},
+	EquipBestArtists = { -- sem argumentos; o servidor escolhe a melhor combinação
+		Name = "EquipBestArtists",
+		Direction = "ClientToServer",
+		RateLimit = { PerSecond = 1, Burst = 2 },
+		Args = {},
+	},
+	UnequipArtist = { -- (uid)
+		Name = "UnequipArtist",
+		Direction = "ClientToServer",
+		RateLimit = { PerSecond = 6, Burst = 10 },
+		Args = { UID_ARG },
+	},
+	SetArtistLock = { -- (uid, locked)
+		Name = "SetArtistLock",
+		Direction = "ClientToServer",
+		RateLimit = { PerSecond = 6, Burst = 10 },
+		Args = { UID_ARG, { Kind = "boolean" } },
+	},
+	FuseArtists = { -- (uid | "all") — funde o grupo desse artista, ou todos os grupos
+		Name = "FuseArtists",
+		Direction = "ClientToServer",
+		RateLimit = { PerSecond = 2, Burst = 4 },
+		Args = { { Kind = "string", MaxLength = 12, Pattern = "^[%dal]+$" } },
+	},
+	SetAutoFuse = { -- (enabled)
+		Name = "SetAutoFuse",
+		Direction = "ClientToServer",
+		RateLimit = { PerSecond = 2, Burst = 4 },
+		Args = { { Kind = "boolean" } },
+	},
+	SetAutoDelete = { -- (upToIndex: 0 = desligado)
+		Name = "SetAutoDelete",
+		Direction = "ClientToServer",
+		RateLimit = { PerSecond = 4, Burst = 6 },
+		Args = { { Kind = "number", Integer = true, Min = 0, Max = ArtistsConfig.AutoDeleteMaxIndex } },
+	},
+	BuySkillNode = { -- (nodeId)
+		Name = "BuySkillNode",
+		Direction = "ClientToServer",
+		RateLimit = { PerSecond = 4, Burst = 8 },
+		Args = { { Kind = "enum", Values = SkillTreeConfig.Ids } },
+	},
+	DoWorldTour = { -- sem argumentos; o servidor valida requisitos e faz o reset
+		Name = "DoWorldTour",
+		Direction = "ClientToServer",
+		RateLimit = { PerSecond = 0.2, Burst = 1 },
+		Args = {},
+	},
 
 	-- Servidor -> Cliente ----------------------------------------------------
 	StateSnapshot = { -- payload: Types.PlayerStateSnapshot
@@ -110,6 +199,16 @@ local Defs: Registry = {
 		Direction = "ServerToClient",
 		Args = {},
 	},
+	ArtistsSync = { -- payload: Types.ArtistsSync (coleção completa do próprio jogador)
+		Name = "ArtistsSync",
+		Direction = "ServerToClient",
+		Args = {},
+	},
+	CrateResult = { -- payload: Types.CrateResult
+		Name = "CrateResult",
+		Direction = "ServerToClient",
+		Args = {},
+	},
 }
 
 local All: { RemoteDef } = {
@@ -119,12 +218,25 @@ local All: { RemoteDef } = {
 	Defs.TriggerDrop,
 	Defs.BuyPyro,
 	Defs.ReturnToPlot,
+	Defs.BuyStage,
+	Defs.OpenCrate,
+	Defs.EquipArtist,
+	Defs.EquipBestArtists,
+	Defs.UnequipArtist,
+	Defs.SetArtistLock,
+	Defs.FuseArtists,
+	Defs.SetAutoFuse,
+	Defs.SetAutoDelete,
+	Defs.BuySkillNode,
+	Defs.DoWorldTour,
 	Defs.StateSnapshot,
 	Defs.StateDelta,
 	Defs.Notify,
 	Defs.PurchaseResult,
 	Defs.DropState,
 	Defs.DropResolved,
+	Defs.ArtistsSync,
+	Defs.CrateResult,
 }
 
 return table.freeze({

@@ -174,6 +174,64 @@ function Assets.GetPlazaTemplate(): Model
 	return cached
 end
 
+-- Decoração do terreno por era: ServerStorage/Assets/Decor/<Era> (Underground, Ascensão, Estrelato, Lenda)
+function Assets.GetDecorTemplate(era: Types.EraName): Model
+	local custom = findAsset({ "Decor", era })
+	if custom then
+		if Assets.GetRoot(custom) then
+			anchorAll(custom)
+			return custom
+		end
+		warnOnce("Decor:" .. era, "Decor/" .. era .. ": sem 'Root' (BasePart) — a usar o placeholder.")
+	end
+	local key = "Decor_" .. era
+	local cached = cache[key]
+	if not cached then
+		cached = Placeholders.BuildDecor(era)
+		cache[key] = cached
+	end
+	return cached
+end
+
+-- Artista: ServerStorage/Assets/Artists/<ArtistId> (Model com PrimaryPart/HumanoidRootPart).
+-- Sem modelo próprio, usa o boneco placeholder (pintado com a cor da raridade).
+function Assets.GetArtistTemplate(artistId: string): Model
+	local custom = findAsset({ "Artists", artistId })
+	if custom then
+		local root = custom.PrimaryPart or custom:FindFirstChild("HumanoidRootPart")
+		if root and root:IsA("BasePart") then
+			custom.PrimaryPart = root
+			anchorAll(custom)
+			return custom
+		end
+		warnOnce("Artist:" .. artistId, "Artists/" .. artistId .. ": sem PrimaryPart/HumanoidRootPart — a usar o placeholder.")
+	end
+	local cached = cache.ArtistRig
+	if not cached then
+		cached = Placeholders.BuildArtistRig()
+		cache.ArtistRig = cached
+	end
+	return cached
+end
+
+-- Arco de Prestige: ServerStorage/Assets/Prestige/Arch (Model com Root; parte "Beam" opcional para o texto)
+function Assets.GetPrestigeArchTemplate(): Model
+	local custom = findAsset({ "Prestige", "Arch" })
+	if custom then
+		if Assets.GetRoot(custom) then
+			anchorAll(custom)
+			return custom
+		end
+		warnOnce("Prestige:Arch", "Prestige/Arch: sem 'Root' (BasePart) — a usar o placeholder.")
+	end
+	local cached = cache.PrestigeArch
+	if not cached then
+		cached = Placeholders.BuildPrestigeArch()
+		cache.PrestigeArch = cached
+	end
+	return cached
+end
+
 function Assets.GetSignTemplate(): Model
 	local custom = findAsset({ "PlotSign" })
 	if custom then

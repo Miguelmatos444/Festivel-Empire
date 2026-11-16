@@ -27,6 +27,10 @@ local Data = table.freeze({
 
 	-- Em Studio sem acesso à API, usar store em memória (nada é persistido)
 	UseMockInStudioWithoutApi = true,
+
+	-- Em Studio não há servidores concorrentes: um lock deixado por uma sessão de teste
+	-- anterior (Stop antes do save final) não pode bloquear o carregamento do perfil.
+	IgnoreSessionLockInStudio = true,
 })
 
 return Data

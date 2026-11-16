@@ -36,6 +36,16 @@ local Theme = table.freeze({
 		ResultDuration = 1.6,
 	}),
 
+	Stages = table.freeze({
+		PanelSize = Vector2.new(660, 560),
+		CardHeight = 116,
+		PreviewSize = Vector2.new(120, 96),
+		PreviewStudScale = 0.85, -- píxeis por stud nas silhuetas (mesma escala em todos os tiers)
+		ToggleKey = Enum.KeyCode.P,
+		ToggleGamepadButton = Enum.KeyCode.ButtonX,
+		RefreshInterval = 0.5,
+	}),
+
 	Shop = table.freeze({
 		PanelSize = Vector2.new(600, 520), -- tamanho de desenho; escalado para caber no ecrã
 		ScreenFill = 0.92,

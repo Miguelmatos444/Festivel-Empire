@@ -15,6 +15,7 @@ local BassDropConfig = require(ReplicatedStorage.Shared.Config.BassDrop)
 local PyroConfig = require(ReplicatedStorage.Shared.Config.Pyro)
 local Signal = require(ReplicatedStorage.Shared.Util.Signal)
 local Trove = require(ReplicatedStorage.Shared.Util.Trove)
+local Diag = require(ReplicatedStorage.Shared.Util.Diag)
 local NetController = require(script.Parent.NetController)
 
 type DropState = Types.DropState
@@ -95,7 +96,9 @@ function BassDropController.IsWindowOpen(): boolean
 		return false
 	end
 	local now = BassDropController.GetServerTime()
-	return now >= current.DropTime - BassDropConfig.WindowBefore and now <= current.DropTime + BassDropConfig.WindowAfter
+	local bonus = current.WindowBonus or 0 -- habilidade "Ouvido Fino" dos artistas
+	return now >= current.DropTime - (BassDropConfig.WindowBefore + bonus)
+		and now <= current.DropTime + BassDropConfig.WindowAfter + bonus
 end
 
 -- Devolve true se o pedido foi enviado
@@ -122,6 +125,11 @@ function BassDropController.Init()
 	trove:Add(NetController.On(RemoteDefs.Defs.DropState, function(payload: unknown)
 		local newState = payload :: DropState
 		state = newState
+		Diag.LogSampled(
+			"Drop",
+			"state",
+			string.format("barra aplicada: fase %s, energia %.1f/%d", newState.Phase, newState.Energy, newState.MaxEnergy)
+		)
 		changed:Fire(newState)
 	end))
 	trove:Add(NetController.On(RemoteDefs.Defs.DropResolved, function(payload: unknown)

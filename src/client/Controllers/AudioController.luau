@@ -8,13 +8,16 @@
 	Sons com id 0 nunca são criados, por isso não há erros de asset na consola.
 ]]
 
+local Debris = game:GetService("Debris")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local SoundService = game:GetService("SoundService")
+local Workspace = game:GetService("Workspace")
 
 local Types = require(ReplicatedStorage.Shared.Types)
 local AudioConfig = require(ReplicatedStorage.Shared.Config.Audio)
+local LodConfig = require(ReplicatedStorage.Shared.Config.Lod)
 local BassDropConfig = require(ReplicatedStorage.Shared.Config.BassDrop)
 local Trove = require(ReplicatedStorage.Shared.Util.Trove)
 local DropCalc = require(ReplicatedStorage.Shared.Calc.DropCalc)
@@ -22,6 +25,8 @@ local BassDropController = require(script.Parent.BassDropController)
 
 type DropState = Types.DropState
 type DropResolved = Types.DropResolved
+
+local POSITIONAL_SOUND_LIFETIME = 8
 
 local AudioController = {}
 
@@ -97,13 +102,70 @@ local function onDropState(newState: DropState)
 	lastPhase = newState.Phase
 end
 
-local function onResolved(result: DropResolved)
-	if result.UserId ~= Players.LocalPlayer.UserId or not result.Success then
+-- LOD de áudio ---------------------------------------------------------------------
+
+export type PositionResolver = (player: Player) -> Vector3?
+
+local positionResolver: PositionResolver? = nil
+
+-- Onde soam os sons de cada jogador (definido pelo PlotController: o palco do terreno)
+function AudioController.SetPositionResolver(resolver: PositionResolver?)
+	positionResolver = resolver
+end
+
+local function playAt(cueName: string, position: Vector3)
+	local template = cues[cueName]
+	if not template then
 		return
 	end
-	AudioController.Play("Impact")
+	local attachment = Instance.new("Attachment")
+	attachment.Name = "AudioLod"
+	attachment.WorldPosition = position
+	attachment.Parent = Workspace.Terrain
+
+	local sound = template:Clone()
+	sound.RollOffMode = Enum.RollOffMode.InverseTapered
+	sound.RollOffMinDistance = 10
+	sound.RollOffMaxDistance = LodConfig.Audio.MaxDistance
+	sound.Volume = template.Volume * LodConfig.Audio.VolumeScale
+	sound.Parent = attachment
+	sound:Play()
+	Debris:AddItem(attachment, POSITIONAL_SOUND_LIFETIME)
+end
+
+--[[
+	Toca um som de um jogador com LOD:
+	  - o próprio jogador: som 2D normal
+	  - outros: som 3D no palco deles, só até LodConfig.Audio.MaxDistance; além disso, silêncio
+]]
+function AudioController.PlayForPlayer(cueName: string, player: Player)
+	if player == Players.LocalPlayer then
+		AudioController.Play(cueName)
+		return
+	end
+	local resolver = positionResolver
+	local position = if resolver then resolver(player) else nil
+	local camera = Workspace.CurrentCamera
+	if not position or not camera then
+		return
+	end
+	if (camera.CFrame.Position - position).Magnitude > LodConfig.Audio.MaxDistance then
+		return
+	end
+	playAt(cueName, position)
+end
+
+local function onResolved(result: DropResolved)
+	if not result.Success then
+		return
+	end
+	local player = Players:GetPlayerByUserId(result.UserId)
+	if not player then
+		return
+	end
+	AudioController.PlayForPlayer("Impact", player)
 	for _, id in DropCalc.MaskToIds(result.Mask) do
-		AudioController.Play(id)
+		AudioController.PlayForPlayer(id, player)
 	end
 end
 

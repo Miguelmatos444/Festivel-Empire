@@ -14,6 +14,7 @@ local RemoteDefs = require(ReplicatedStorage.Shared.Net.RemoteDefs)
 local MapConfig = require(ReplicatedStorage.Shared.Config.Map)
 local NetController = require(script.Parent.NetController)
 local PyroVfxController = require(script.Parent.PyroVfxController)
+local AudioController = require(script.Parent.AudioController)
 
 local MAX_EMITTERS_PER_MACHINE = 8
 
@@ -87,8 +88,25 @@ local function stageResolver(player: Player, machineId: string): { CFrame }
 	return result
 end
 
+-- Ponto de onde soam os sons de um jogador: o foco da câmara do palco, ou o centro do terreno
+function PlotController.GetSoundPosition(player: Player): Vector3?
+	local plot = PlotController.GetPlotModel(player.UserId)
+	if not plot then
+		return nil
+	end
+	local stage = plot:FindFirstChild("Stage")
+	local root = if stage then stage:FindFirstChild("Root") else nil
+	local focus = if root then root:FindFirstChild("CameraFocus") else nil
+	if focus and focus:IsA("Attachment") then
+		return focus.WorldPosition
+	end
+	local base = plot.PrimaryPart
+	return if base then base.Position else nil
+end
+
 function PlotController.Init()
 	PyroVfxController.SetEmitterResolver(stageResolver)
+	AudioController.SetPositionResolver(PlotController.GetSoundPosition)
 end
 
 return PlotController

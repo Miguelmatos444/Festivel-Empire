@@ -24,6 +24,7 @@ local DataConfig = require(ReplicatedStorage.Shared.Config.Data)
 local BigNum = require(ReplicatedStorage.Shared.Util.BigNum)
 local Signal = require(ReplicatedStorage.Shared.Util.Signal)
 local Trove = require(ReplicatedStorage.Shared.Util.Trove)
+local Diag = require(ReplicatedStorage.Shared.Util.Diag)
 local ProfileTemplate = require(script.Parent.Parent.Data.ProfileTemplate)
 local Migrations = require(script.Parent.Parent.Data.Migrations)
 
@@ -106,8 +107,10 @@ local function readLock(value: unknown): Lock?
 	return nil
 end
 
+local IGNORE_LOCKS = RunService:IsStudio() and DataConfig.IgnoreSessionLockInStudio
+
 local function isLockedByOther(lock: Lock?): boolean
-	if not lock then
+	if not lock or IGNORE_LOCKS then
 		return false
 	end
 	return lock.JobId ~= game.JobId and os.time() - lock.Time < DataConfig.SessionLockTimeout
@@ -121,6 +124,7 @@ end
 local function hydrate(data: ProfileData)
 	data.Hype = BigNum.deserialize(data.Hype)
 	data.TotalHypeEarned = BigNum.deserialize(data.TotalHypeEarned)
+	data.RunHypeEarned = BigNum.deserialize(data.RunHypeEarned)
 end
 
 local function withRetries(label: string, callback: () -> ()): (boolean, string?)
@@ -243,6 +247,8 @@ local function loadProfile(player: Player)
 
 	local key = DataConfig.KeyPrefix .. player.UserId
 	local raw: RawData? = nil
+	local startedAt = os.clock()
+	Diag.Log("Data", string.format("a carregar o perfil de %s (%s)", player.Name, if usingMock then "memória" else "DataStore"))
 
 	for attempt = 1, DataConfig.LockRetryAttempts do
 		if player.Parent ~= Players then
@@ -255,9 +261,18 @@ local function loadProfile(player: Player)
 			break
 		elseif result == "Failed" then
 			loading[player] = nil
+			warn(string.format("[DataService] Falha ao carregar o perfil de %s; jogador expulso.", player.Name))
 			player:Kick(KICK_LOAD_FAILED)
 			return
 		end
+		warn(
+			string.format(
+				"[DataService] Perfil de %s bloqueado por outra sessão (tentativa %d/%d). Cliques e Bass Drop ficam parados até carregar.",
+				player.Name,
+				attempt,
+				DataConfig.LockRetryAttempts
+			)
+		)
 		if attempt < DataConfig.LockRetryAttempts then
 			task.wait(DataConfig.LockRetryDelay)
 		end
@@ -296,6 +311,7 @@ local function loadProfile(player: Player)
 		Released = false,
 	}
 
+	Diag.Log("Data", string.format("perfil de %s carregado em %.2f s", player.Name, os.clock() - startedAt))
 	profileLoaded:Fire(player, data)
 end
 

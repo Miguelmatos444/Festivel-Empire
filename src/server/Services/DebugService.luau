@@ -27,6 +27,10 @@ local PyroService = require(script.Parent.PyroService)
 local BassDropService = require(script.Parent.BassDropService)
 local PlotService = require(script.Parent.PlotService)
 local StageService = require(script.Parent.StageService)
+local ArtistService = require(script.Parent.ArtistService)
+local PrestigeService = require(script.Parent.PrestigeService)
+local ArtistsConfig = require(ReplicatedStorage.Shared.Config.Artists)
+local RaritiesConfig = require(ReplicatedStorage.Shared.Config.Rarities)
 local MapCalc = require(ReplicatedStorage.Shared.Calc.MapCalc)
 local MapConfig = require(ReplicatedStorage.Shared.Config.Map)
 
@@ -53,6 +57,12 @@ local COMMAND_ORDER = {
 	"pyro",
 	"cd",
 	"stage",
+	"wt",
+	"artist",
+	"pity",
+	"tour",
+	"discs",
+	"skills",
 	"plots",
 	"home",
 	"state",
@@ -317,12 +327,12 @@ commands.cd = {
 }
 
 commands.stage = {
-	Usage = "stage <1-12>",
-	Description = "Troca o palco do teu terreno (sem requisitos)",
+	Usage = "stage <1-12> [anim]",
+	Description = "Troca o palco (sem custo); 'anim' mostra a animação",
 	Run = function(player: Player, args: { string }): string
 		local tier = tonumber(args[1] or "")
-		if not tier or not StageService.SetTier(player, tier) then
-			return "Uso: /fe stage <1-12>  (requer terreno e perfil carregados)"
+		if not tier or not StageService.SetTier(player, tier, args[2] == "anim") then
+			return "Uso: /fe stage <1-12> [anim]  (requer terreno e perfil carregados)"
 		end
 		local def = MapCalc.GetStageDef(tier)
 		return string.format(
@@ -334,6 +344,126 @@ commands.stage = {
 			def.Depth,
 			def.Height
 		)
+	end,
+}
+
+commands.wt = {
+	Usage = "wt <0-99>",
+	Description = "Define o nº de World Tours (testar requisitos)",
+	Run = function(player: Player, args: { string }): string
+		local data = DataService.GetProfile(player)
+		local value = tonumber(args[1] or "")
+		if not data or not value or value < 0 or value % 1 ~= 0 then
+			return "Uso: /fe wt <0-99>"
+		end
+		data.WorldTours = value
+		PlayerStateService.MarkDirty(player)
+		return "World Tours: " .. value
+	end,
+}
+
+local function findIdCaseless(list: { string }, text: string?): string?
+	if not text then
+		return nil
+	end
+	for _, id in list do
+		if string.lower(id) == string.lower(text) then
+			return id
+		end
+	end
+	return nil
+end
+
+commands.artist = {
+	Usage = "artist give <artistId> <raridade> [estrelas] [qtd] | artist clear",
+	Description = "Dá artistas (ids em Config/Artists) ou limpa a coleção",
+	Run = function(player: Player, args: { string }): string
+		local data = DataService.GetProfile(player)
+		if not data then
+			return "Perfil não carregado."
+		end
+		if args[1] == "clear" then
+			table.clear(data.Artists)
+			table.clear(data.EquippedArtists)
+			ArtistService.Commit(player)
+			return "Coleção limpa."
+		end
+		local artistIds: { string } = {}
+		for _, def in ArtistsConfig.List do
+			table.insert(artistIds, def.Id)
+		end
+		local rarityIds: { string } = {}
+		for _, rarity in RaritiesConfig.List do
+			table.insert(rarityIds, rarity.Id)
+		end
+		local artistId = findIdCaseless(artistIds, args[2])
+		local rarityId = findIdCaseless(rarityIds, args[3])
+		local stars = tonumber(args[4] or "1") or 1
+		local amount = math.clamp(tonumber(args[5] or "1") or 1, 1, 50)
+		if args[1] ~= "give" or not artistId or not rarityId then
+			return "Uso: /fe artist give <artistId> <raridade> [estrelas] [qtd]  (ex.: LinaLoop Brilliant 1 3)"
+		end
+		for _ = 1, amount do
+			ArtistService.AddArtist(player, artistId, rarityId, stars)
+		end
+		ArtistService.Commit(player)
+		return string.format("+%d %s · %s %d★", amount, artistId, rarityId, stars)
+	end,
+}
+
+commands.pity = {
+	Usage = "pity",
+	Description = "Mostra os contadores de pity",
+	Run = function(player: Player, _args: { string }): string
+		local data = DataService.GetProfile(player)
+		if not data then
+			return "Perfil não carregado."
+		end
+		local counters = (data.Pity :: unknown) :: { [string]: number }
+		local parts: { string } = {}
+		for _, level in RaritiesConfig.PityLadder do
+			table.insert(parts, string.format("%s %d/%d", level.Label, counters[level.Key] or 0, level.Threshold))
+		end
+		return "Pity: " .. table.concat(parts, " · ")
+	end,
+}
+
+commands.tour = {
+	Usage = "tour [force]",
+	Description = "Faz World Tour ('force' ignora requisitos)",
+	Run = function(player: Player, args: { string }): string
+		local discs, can, reason = PrestigeService.GetPreview(player)
+		if args[1] ~= "force" and not can then
+			return string.format("Não pode (%s). Preview: %d Discos. Usa /fe tour force", tostring(reason), discs)
+		end
+		local ok, message = PrestigeService.DoWorldTour(player, args[1] == "force")
+		return if ok then "World Tour feito." else message
+	end,
+}
+
+commands.discs = {
+	Usage = "discs <n>",
+	Description = "Define os Discos de Platina por gastar",
+	Run = function(player: Player, args: { string }): string
+		local data = DataService.GetProfile(player)
+		local value = tonumber(args[1] or "")
+		if not data or not value or value < 0 then
+			return "Uso: /fe discs <n>"
+		end
+		data.PlatinumDiscs = math.floor(value)
+		PlayerStateService.MarkDirty(player)
+		return "Discos de Platina: " .. data.PlatinumDiscs
+	end,
+}
+
+commands.skills = {
+	Usage = "skills reset",
+	Description = "Limpa a árvore e devolve os Discos gastos",
+	Run = function(player: Player, args: { string }): string
+		if args[1] ~= "reset" then
+			return "Uso: /fe skills reset"
+		end
+		return "Árvore limpa: +" .. PrestigeService.ResetTree(player) .. " Discos devolvidos."
 	end,
 }
 

@@ -17,6 +17,7 @@ local Client = script.Parent.Parent.Parent
 local PlotController = require(Client.Controllers.PlotController)
 local Theme = require(script.Parent.Parent.Theme)
 local Components = require(script.Parent.Parent.Components)
+local SideMenu = require(script.Parent.Parent.SideMenu)
 
 local CHECK_INTERVAL = 0.5
 
@@ -45,7 +46,7 @@ function ReturnView.Mount()
 	holder.Position = UDim2.new(0, 16, 0.5, -128)
 	holder.Size = UDim2.fromOffset(112, 100)
 	holder.Visible = false
-	holder.Parent = screenGui
+	SideMenu.Attach(holder, 1)
 
 	local scale = Instance.new("UIScale")
 	scale.Parent = holder

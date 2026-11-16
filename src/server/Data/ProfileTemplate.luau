@@ -22,15 +22,20 @@ function ProfileTemplate.Create(): Types.ProfileData
 		DataVersion = ProfileTemplate.Version,
 		Hype = BigNum.serialize(BigNum.fromNumber(EconomyConfig.StartingHype)),
 		TotalHypeEarned = BigNum.serialize(BigNum.ZERO),
+		RunHypeEarned = BigNum.serialize(BigNum.ZERO),
 		PlatinumDiscs = 0,
+		TotalDiscsEarned = 0,
 		WorldTours = 0,
 		StageTier = 1,
 		Equipment = {},
 		Artists = {},
 		EquippedArtists = {},
+		NextArtistUid = 1,
 		Pity = {
 			Legendary = 0,
 			Mythic = 0,
+			Divine = 0,
+			Cosmic = 0,
 		},
 		SkillTree = {},
 		Stats = {
@@ -42,6 +47,8 @@ function ProfileTemplate.Create(): Types.ProfileData
 			MusicVolume = 0.8,
 			SfxVolume = 1,
 			LowVfx = false,
+			AutoFuse = false,
+			AutoDeleteUpTo = 0,
 		},
 		-- Faíscas Frias desbloqueadas desde o início; perfis antigos recebem-nas via Reconcile
 		Pyro = {

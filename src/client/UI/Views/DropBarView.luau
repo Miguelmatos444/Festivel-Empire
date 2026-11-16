@@ -338,10 +338,15 @@ function DropBarView.Mount()
 				end
 			end
 		end
+		local savedBy = result.SavedBy
+		local detail = if #names > 0 then table.concat(names, "  +  ") else "Arma mais máquinas para sinergias"
+		if savedBy then
+			detail = "SALVO POR " .. string.upper(savedBy) .. "!" .. (if #names > 0 then "  ·  " .. table.concat(names, " + ") else "")
+		end
 		showResult(
 			string.format("%s %sx", if gradeDef then gradeDef.Label else "DROP!", NumberFormatter.format(result.Multiplier)),
 			gradeColor(grade),
-			if #names > 0 then table.concat(names, "  +  ") else "Arma mais máquinas para sinergias"
+			detail
 		)
 	end
 

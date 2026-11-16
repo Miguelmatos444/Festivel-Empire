@@ -3,7 +3,8 @@
 	Config/Pyro
 	Máquinas de pirotecnia e sinergias do Bass Drop.
 	Multiplicador = clamp(Soma das bases × Produto das sinergias × Fator de timing, Min, Max)
-	RequiredTier fica a 1 até existirem palcos (passa para os tiers das eras nessa fase).
+	RequiredTier = tier de palco exigido para DESBLOQUEAR a máquina (CO₂ 2, Lasers 4, Lança-chamas 8).
+	Depois de desbloqueada, a máquina continua utilizável mesmo que um World Tour baixe o tier.
 ]]
 
 local Types = require(script.Parent.Parent.Types)
@@ -32,7 +33,7 @@ local List: { PyroDef } = {
 		UnlockCost = 50e3,
 		BaseMultiplier = 7,
 		Cooldown = 45,
-		RequiredTier = 1,
+		RequiredTier = 2,
 	},
 	{
 		Id = "Lasers",
@@ -43,7 +44,7 @@ local List: { PyroDef } = {
 		UnlockCost = 5e6,
 		BaseMultiplier = 10,
 		Cooldown = 75,
-		RequiredTier = 1,
+		RequiredTier = 4,
 	},
 	{
 		Id = "Flamethrower",
@@ -54,7 +55,7 @@ local List: { PyroDef } = {
 		UnlockCost = 500e6,
 		BaseMultiplier = 14,
 		Cooldown = 120,
-		RequiredTier = 1,
+		RequiredTier = 8,
 	},
 }
 

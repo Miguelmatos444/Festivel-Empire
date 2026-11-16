@@ -16,6 +16,7 @@ local RemoteDefs = require(ReplicatedStorage.Shared.Net.RemoteDefs)
 local BigNum = require(ReplicatedStorage.Shared.Util.BigNum)
 local Trove = require(ReplicatedStorage.Shared.Util.Trove)
 local Signal = require(ReplicatedStorage.Shared.Util.Signal)
+local Diag = require(ReplicatedStorage.Shared.Util.Diag)
 local ServerNet = require(script.Parent.Parent.Net.ServerNet)
 local DataService = require(script.Parent.DataService)
 local EconomyService = require(script.Parent.EconomyService)
@@ -58,6 +59,7 @@ local function buildSnapshot(player: Player, data: ProfileData): Snapshot
 	return {
 		Hype = BigNum.serialize(data.Hype),
 		TotalHypeEarned = BigNum.serialize(data.TotalHypeEarned),
+		RunHypeEarned = BigNum.serialize(data.RunHypeEarned),
 		HypePerClick = BigNum.serialize(EconomyService.GetHypePerClick(player)),
 		HypePerSecond = BigNum.serialize(EconomyService.GetHypePerSecond(player)),
 		PlatinumDiscs = data.PlatinumDiscs,
@@ -65,6 +67,7 @@ local function buildSnapshot(player: Player, data: ProfileData): Snapshot
 		StageTier = data.StageTier,
 		Clicks = data.Stats.Clicks,
 		Equipment = table.clone(data.Equipment),
+		SkillTree = table.clone(data.SkillTree),
 	}
 end
 
@@ -79,6 +82,17 @@ local function buildDelta(previous: Snapshot, current: Snapshot): (StateDelta, b
 	if not BigNum.eq(previous.TotalHypeEarned, current.TotalHypeEarned) then
 		delta.TotalHypeEarned = current.TotalHypeEarned
 		changed = true
+	end
+	if not BigNum.eq(previous.RunHypeEarned, current.RunHypeEarned) then
+		delta.RunHypeEarned = current.RunHypeEarned
+		changed = true
+	end
+	for id, level in current.SkillTree do
+		if previous.SkillTree[id] ~= level then
+			delta.SkillTree = current.SkillTree
+			changed = true
+			break
+		end
 	end
 	if not BigNum.eq(previous.HypePerClick, current.HypePerClick) then
 		delta.HypePerClick = current.HypePerClick
@@ -113,6 +127,13 @@ local function buildDelta(previous: Snapshot, current: Snapshot): (StateDelta, b
 			equipmentChanged = true
 		end
 	end
+	-- Equipamento removido (reset do World Tour): envia o nível 0
+	for id in previous.Equipment do
+		if current.Equipment[id] == nil then
+			equipmentChanges[id] = 0
+			equipmentChanged = true
+		end
+	end
 	if equipmentChanged then
 		delta.Equipment = equipmentChanges
 		changed = true
@@ -130,6 +151,10 @@ end
 
 local function flush()
 	for player, client in clients do
+		-- Rede de segurança: pronto + perfil carregado mas sem snapshot enviado -> envia já
+		if client.Ready and client.LastSent == nil and DataService.GetProfile(player) then
+			PlayerStateService.SendSnapshot(player)
+		end
 		if client.Dirty and client.Ready then
 			local data = DataService.GetProfile(player)
 			local previous = client.LastSent
@@ -140,6 +165,7 @@ local function flush()
 				if changed then
 					client.LastSent = current
 					ServerNet.FireClient(RemoteDefs.Defs.StateDelta, player, delta)
+					Diag.LogSampled("State", "delta:" .. player.UserId, "→ delta enviado a " .. player.Name)
 				end
 			end
 		end
@@ -159,12 +185,22 @@ function PlayerStateService.SendSnapshot(player: Player)
 	local client = clients[player]
 	local data = DataService.GetProfile(player)
 	if not client or not client.Ready or not data then
+		Diag.Log(
+			"State",
+			string.format(
+				"snapshot de %s adiado (cliente pronto=%s, perfil carregado=%s)",
+				player.Name,
+				tostring(client ~= nil and client.Ready),
+				tostring(data ~= nil)
+			)
+		)
 		return
 	end
 	local snapshot = buildSnapshot(player, data)
 	client.LastSent = snapshot
 	client.Dirty = false
 	ServerNet.FireClient(RemoteDefs.Defs.StateSnapshot, player, snapshot)
+	Diag.Log("State", string.format("→ snapshot enviado a %s (Hype %.3fe%d)", player.Name, snapshot.Hype.m, snapshot.Hype.e))
 	flushNotices(player, client)
 end
 
@@ -198,10 +234,14 @@ function PlayerStateService.Init()
 	ServerNet.Connect(RemoteDefs.Defs.ClientReady, function(player: Player)
 		local client = getClient(player)
 		if client.Ready then
+			-- Pedido repetido (o cliente não recebeu o snapshot): reenvia o estado completo
+			Diag.Log("State", "ClientReady repetido de " .. player.Name .. " — a reenviar o snapshot")
+			PlayerStateService.SendSnapshot(player)
 			return
 		end
 		client.Ready = true
-		PlayerStateService.SendSnapshot(player)
+		Diag.Log("State", "cliente de " .. player.Name .. " pronto")
+		PlayerStateService.SendSnapshot(player) -- se o perfil ainda não carregou, segue no ProfileLoaded
 		clientReady:Fire(player)
 	end)
 

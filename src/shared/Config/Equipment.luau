@@ -81,7 +81,7 @@ local List: { EquipmentDef } = {
 		BaseCost = 250000,
 		GrowthRate = 1.13,
 		BaseOutput = 700,
-		RequiredTier = 1,
+		RequiredTier = 2,
 		UnlockAfter = "LineArray",
 	},
 	{
@@ -93,7 +93,7 @@ local List: { EquipmentDef } = {
 		BaseCost = 3.5e6,
 		GrowthRate = 1.12,
 		BaseOutput = 5500,
-		RequiredTier = 1,
+		RequiredTier = 3,
 		UnlockAfter = "Mixer32",
 	},
 	{
@@ -105,7 +105,7 @@ local List: { EquipmentDef } = {
 		BaseCost = 50e6,
 		GrowthRate = 1.11,
 		BaseOutput = 42000,
-		RequiredTier = 1,
+		RequiredTier = 4,
 		UnlockAfter = "ResidentDJ",
 	},
 	{
@@ -117,7 +117,7 @@ local List: { EquipmentDef } = {
 		BaseCost = 750e6,
 		GrowthRate = 1.10,
 		BaseOutput = 320000,
-		RequiredTier = 1,
+		RequiredTier = 5,
 		UnlockAfter = "FxRack",
 	},
 	{
@@ -129,7 +129,7 @@ local List: { EquipmentDef } = {
 		BaseCost = 12e9,
 		GrowthRate = 1.09,
 		BaseOutput = 2.5e6,
-		RequiredTier = 1,
+		RequiredTier = 6,
 		UnlockAfter = "HeadlinerDJ",
 	},
 }

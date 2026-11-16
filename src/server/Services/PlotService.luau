@@ -142,7 +142,10 @@ function PlotService.RefreshSign(index: number)
 	local data = DataService.GetProfile(owner)
 	if data then
 		local def = MapCalc.GetStageDef(data.StageTier)
-		subtitle.Text = string.format("Tier %d · %s · Era %s", def.Tier, def.Name, def.Era)
+		local tours = if data.WorldTours > 0
+			then string.rep("★", math.min(data.WorldTours, 5)) .. " World Tour " .. data.WorldTours .. " · "
+			else ""
+		subtitle.Text = string.format("%sTier %d · %s · Era %s", tours, def.Tier, def.Name, def.Era)
 	else
 		subtitle.Text = "A preparar o palco…"
 	end

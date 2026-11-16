@@ -18,6 +18,7 @@ local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
 local Types = require(ReplicatedStorage.Shared.Types)
+local LodConfig = require(ReplicatedStorage.Shared.Config.Lod)
 local Trove = require(ReplicatedStorage.Shared.Util.Trove)
 local DropCalc = require(ReplicatedStorage.Shared.Calc.DropCalc)
 local BassDropController = require(script.Parent.BassDropController)
@@ -41,9 +42,9 @@ type ActiveEffect = {
 
 local VFX = {
 	Duration = 4,
-	LightDistance = 120,
-	HideDistance = 250,
-	Scale = { Full = 1, Light = 0.4, Minimal = 0.15 },
+	LightDistance = LodConfig.Vfx.LightDistance,
+	HideDistance = LodConfig.Vfx.HideDistance,
+	Scale = LodConfig.Vfx.Scale,
 	Textures = {
 		Spark = "rbxasset://textures/particles/sparkles_main.dds",
 		Smoke = "rbxasset://textures/particles/smoke_main.dds",
@@ -293,6 +294,11 @@ local function update()
 			end
 		end
 	end
+end
+
+-- Dispara um espetáculo de pirotecnia no terreno do jogador (com LOD), ex.: troca de era do palco
+function PyroVfxController.PlayShow(player: Player, mask: number)
+	spawnShow(player, mask)
 end
 
 -- Ciclo de vida --------------------------------------------------------------

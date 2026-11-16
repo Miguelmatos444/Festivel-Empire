@@ -13,6 +13,7 @@
 	Depois troca o conteúdo de cada "Visual" pelo teu modelo e grava o place.
 ]]
 
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerStorage = game:GetService("ServerStorage")
 
@@ -310,6 +311,175 @@ function Placeholders.BuildSign(): Model
 	return model
 end
 
+-- Decoração do terreno por era ------------------------------------------------------
+--[[
+	Origem = centro do terreno, no chão; -Z aponta para a praça (frente).
+	Root = caixa 120 x 1 x 120 (o terreno). Só usa as alas laterais (x = ±45..±60,
+	profundidade 68–116) e as margens da zona do público — nunca a zona do palco.
+]]
+local ERA_ORDER: { EraName } = { "Underground", "Ascensão", "Estrelato", "Lenda" }
+Placeholders.EraOrder = table.freeze(ERA_ORDER)
+
+function Placeholders.BuildDecor(era: EraName): Model
+	local plots = MapConfig.Plots
+	local style = eraStyle(era)
+	local halfDepth = plots.Depth / 2
+	local wingX = plots.StageZone.Width / 2 + plots.WingWidth / 2
+
+	local model = Instance.new("Model")
+	model.Name = "Decor_" .. era
+	makeRoot(model, Vector3.new(plots.Width, 1, plots.Depth), CFrame.new(0, 0.5, 0))
+
+	local visual = Instance.new("Model")
+	visual.Name = "Visual"
+	visual.Parent = model
+
+	-- Peça assente no chão, em coordenadas do terreno (depth a partir da frente)
+	local function prop(name: string, size: Vector3, x: number, depth: number, color: Color3, material: Enum.Material, lift: number?): Part
+		return Placeholders.NewPart(
+			name,
+			size,
+			CFrame.new(x, (lift or 0) + size.Y / 2, -halfDepth + depth),
+			color,
+			material,
+			visual
+		)
+	end
+
+	local wingDepths = { plots.StageFront + 10, plots.StageBack - 10 }
+	for _, side in { -1, 1 } do
+		for index, depth in wingDepths do
+			local x = side * wingX
+			if era == "Underground" then
+				prop("Crate", Vector3.new(5, 5, 5), x, depth, Color3.fromRGB(124, 92, 60), Enum.Material.WoodPlanks)
+				prop("Barrel", Vector3.new(3, 4, 3), x, depth + 8, Color3.fromRGB(90, 70, 50), Enum.Material.Wood)
+			elseif era == "Ascensão" then
+				prop("LightPole", Vector3.new(1, 18, 1), x, depth, Color3.fromRGB(60, 60, 64), Enum.Material.Metal)
+				prop("Lamp", Vector3.new(3, 1, 3), x, depth, style.Accent, Enum.Material.Neon, 18)
+			elseif era == "Estrelato" then
+				prop("Truss", Vector3.new(3, 30, 3), x, depth, Color3.fromRGB(70, 70, 78), Enum.Material.DiamondPlate)
+				prop("TrussLight", Vector3.new(4, 1.5, 4), x, depth, style.Accent, Enum.Material.Neon, 30)
+			else
+				local pillar = prop("HoloPillar", Vector3.new(40, 3, 3), x, depth, style.Wall, Enum.Material.Neon)
+				pillar.Shape = Enum.PartType.Cylinder
+				pillar.CFrame = CFrame.new(x, 20, -halfDepth + depth) * CFrame.Angles(0, 0, math.rad(90))
+				if index == 1 then
+					prop("HoloBase", Vector3.new(6, 1, 6), x, depth, Color3.fromRGB(30, 40, 60), Enum.Material.Metal)
+				end
+			end
+		end
+
+		-- Margem lateral da zona do público
+		local crowdMid = (plots.CrowdStart + plots.CrowdEnd) / 2
+		local crowdX = side * (plots.Width / 2 - 4)
+		if era == "Ascensão" then
+			prop("Banner", Vector3.new(0.5, 8, 6), crowdX, crowdMid, style.Wall, Enum.Material.SmoothPlastic, 2)
+		elseif era == "Estrelato" or era == "Lenda" then
+			local screen = prop("SideScreen", Vector3.new(0.5, 12, 18), crowdX, crowdMid, style.Wall, Enum.Material.Neon, 4)
+			screen.Transparency = 0.2
+		end
+	end
+
+	if era == "Lenda" then
+		local ring = Placeholders.NewPart(
+			"HoloRing",
+			Vector3.new(0.6, 24, 24),
+			CFrame.new(0, 30, -halfDepth + (plots.CrowdStart + plots.CrowdEnd) / 2) * CFrame.Angles(0, 0, math.rad(90)),
+			style.Accent,
+			Enum.Material.Neon,
+			visual
+		)
+		ring.Shape = Enum.PartType.Cylinder
+		ring.Transparency = 0.4
+		ring.CanCollide = false
+	end
+
+	for _, descendant in visual:GetDescendants() do
+		if descendant:IsA("BasePart") then
+			descendant.CanCollide = descendant.Name ~= "HoloRing" and descendant.Size.Y < 25
+		end
+	end
+
+	return model
+end
+
+-- Arco de Prestige (entrada do terreno) ------------------------------------------------
+--[[
+	Origem = base, ao centro, no chão; -Z aponta para a praça. Abraça a entrada (24 studs).
+	A parte "Beam" recebe o texto "WORLD TOUR ×N"; as cores são aplicadas pelo
+	PrestigeService (atributo Placeholder = true).
+]]
+function Placeholders.BuildPrestigeArch(): Model
+	local model = Instance.new("Model")
+	model.Name = "PrestigeArch"
+	makeRoot(model, Vector3.new(30, 17, 2), CFrame.new(0, 8.5, 0))
+
+	local visual = Instance.new("Model")
+	visual.Name = "Visual"
+	visual.Parent = model
+
+	local gold = Color3.fromRGB(255, 200, 60)
+	for _, side in { -1, 1 } do
+		Placeholders.NewPart("Pillar", Vector3.new(2, 15, 2), CFrame.new(side * 13, 7.5, 0), gold, Enum.Material.Metal, visual)
+	end
+	Placeholders.NewPart("Beam", Vector3.new(30, 2, 2), CFrame.new(0, 16, 0), gold, Enum.Material.Metal, visual)
+	model:SetAttribute("Placeholder", true)
+	return model
+end
+
+-- Artista (boneco placeholder) ------------------------------------------------------
+--[[
+	Model com PrimaryPart = HumanoidRootPart, de pé, virado para -Z (o público).
+	Tenta um R15 padrão (CreateHumanoidModelFromDescription); se falhar, usa uma figura de blocos.
+	O StageArtistService pinta-o com a cor da raridade (atributo Placeholder = true).
+]]
+local function buildBlockFigure(): Model
+	local model = Instance.new("Model")
+	model.Name = "ArtistRig"
+	local white = Color3.new(1, 1, 1)
+	local root = Placeholders.NewPart("HumanoidRootPart", Vector3.new(2, 2, 1), CFrame.new(0, 3, 0), white, Enum.Material.SmoothPlastic, model)
+	root.Transparency = 1
+	model.PrimaryPart = root
+	Placeholders.NewPart("Torso", Vector3.new(2, 2, 1), CFrame.new(0, 3, 0), white, Enum.Material.SmoothPlastic, model)
+	Placeholders.NewPart("Head", Vector3.new(1.2, 1.2, 1.2), CFrame.new(0, 4.6, 0), white, Enum.Material.SmoothPlastic, model)
+	Placeholders.NewPart("LeftArm", Vector3.new(1, 2, 1), CFrame.new(-1.5, 3, 0), white, Enum.Material.SmoothPlastic, model)
+	Placeholders.NewPart("RightArm", Vector3.new(1, 2, 1), CFrame.new(1.5, 3, 0), white, Enum.Material.SmoothPlastic, model)
+	Placeholders.NewPart("LeftLeg", Vector3.new(1, 2, 1), CFrame.new(-0.5, 1, 0), white, Enum.Material.SmoothPlastic, model)
+	Placeholders.NewPart("RightLeg", Vector3.new(1, 2, 1), CFrame.new(0.5, 1, 0), white, Enum.Material.SmoothPlastic, model)
+	return model
+end
+
+function Placeholders.BuildArtistRig(): Model
+	local ok, result = pcall(function(): Model
+		local description = Instance.new("HumanoidDescription")
+		return Players:CreateHumanoidModelFromDescription(description, Enum.HumanoidRigType.R15)
+	end)
+	local rig = if ok then result else buildBlockFigure()
+	rig.Name = "ArtistRig"
+
+	for _, descendant in rig:GetDescendants() do
+		if descendant:IsA("BaseScript") or descendant:IsA("BodyColors") then
+			descendant:Destroy()
+		elseif descendant:IsA("BasePart") then
+			descendant.CanCollide = false
+			descendant.CanQuery = false
+			descendant.CanTouch = false
+		end
+	end
+	local humanoid = rig:FindFirstChildOfClass("Humanoid")
+	if humanoid then
+		humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+		humanoid.HealthDisplayType = Enum.HumanoidHealthDisplayType.AlwaysOff
+	end
+	local root = rig:FindFirstChild("HumanoidRootPart")
+	if root and root:IsA("BasePart") then
+		rig.PrimaryPart = root
+		root.Anchored = true
+	end
+	rig:SetAttribute("Placeholder", true)
+	return rig
+end
+
 -- Exportação para ServerStorage/Assets (correr no Command Bar em modo Edit) -----------
 
 local function getOrCreateFolder(parent: Instance, name: string): Instance
@@ -343,6 +513,22 @@ function Placeholders.ExportAll(): number
 	if not assets:FindFirstChild("PlotSign") then
 		Placeholders.BuildSign().Parent = assets
 		created += 1
+	end
+	local prestige = getOrCreateFolder(assets, "Prestige")
+	if not prestige:FindFirstChild("Arch") then
+		local arch = Placeholders.BuildPrestigeArch()
+		arch.Name = "Arch"
+		arch.Parent = prestige
+		created += 1
+	end
+	local decor = getOrCreateFolder(assets, "Decor")
+	for _, era in ERA_ORDER do
+		if not decor:FindFirstChild(era) then
+			local model = Placeholders.BuildDecor(era)
+			model.Name = era
+			model.Parent = decor
+			created += 1
+		end
 	end
 
 	print(string.format("[Placeholders] %d modelos criados em ServerStorage/Assets. Grava o place para os manter.", created))

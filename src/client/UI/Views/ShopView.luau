@@ -29,6 +29,8 @@ local EquipmentController = require(Client.Controllers.EquipmentController)
 local BassDropController = require(Client.Controllers.BassDropController)
 local Theme = require(script.Parent.Parent.Theme)
 local Components = require(script.Parent.Parent.Components)
+local ModalManager = require(script.Parent.Parent.ModalManager)
+local SideMenu = require(script.Parent.Parent.SideMenu)
 
 type BigNum = BigNum.BigNum
 type BuyMode = Types.BuyMode
@@ -288,7 +290,8 @@ function ShopView.Mount()
 	toggleHolder.AnchorPoint = Vector2.new(0, 0.5)
 	toggleHolder.Position = UDim2.new(0, 16, 0.5, 0)
 	toggleHolder.Size = UDim2.fromOffset(112, 112)
-	toggleHolder.Parent = toggleGui
+	toggleHolder.Size = UDim2.fromOffset(112, 100)
+	SideMenu.Attach(toggleHolder, 2)
 
 	local toggleScale = Instance.new("UIScale")
 	toggleScale.Parent = toggleHolder
@@ -616,6 +619,7 @@ function ShopView.Mount()
 		end
 		isOpen = open
 		if open then
+			ModalManager.NotifyOpened("Shop")
 			overlay.Visible = true
 			panelHolder.Visible = true
 			popScale.Scale = 0.85
@@ -637,6 +641,12 @@ function ShopView.Mount()
 		end
 	end
 	setOpenImpl = setOpen
+	ModalManager.Register("Shop", function()
+		setOpen(false)
+	end)
+	trove:Add(function()
+		ModalManager.Unregister("Shop")
+	end)
 
 	trove:Connect(toggleButton.Activated, function()
 		setOpen(not isOpen)

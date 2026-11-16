@@ -14,6 +14,7 @@ local Types = require(ReplicatedStorage.Shared.Types)
 local BigNum = require(ReplicatedStorage.Shared.Util.BigNum)
 local NumberFormatter = require(ReplicatedStorage.Shared.Util.NumberFormatter)
 local Trove = require(ReplicatedStorage.Shared.Util.Trove)
+local Diag = require(ReplicatedStorage.Shared.Util.Diag)
 
 local Client = script.Parent.Parent.Parent
 local StateController = require(Client.Controllers.StateController)
@@ -267,7 +268,9 @@ function HudView.Mount()
 	end
 
 	trove:Connect(beatButton.Activated, function()
-		if not ClickController.RequestClick() then
+		local sent = ClickController.RequestClick()
+		Diag.LogSampled("UI", "beat", "BATIDA premida → enviada ao servidor: " .. tostring(sent))
+		if not sent then
 			return
 		end
 		pulseScale.Scale = 0.9

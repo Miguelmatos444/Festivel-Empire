@@ -24,13 +24,15 @@ function DropCalc.GetBuildUpDuration(): number
 end
 
 -- Avalia a diferença (s) entre o clique e o instante do drop. nil = fora da janela.
-function DropCalc.GradeOffset(offset: number): GradeDef?
-	if offset < -BassDropConfig.WindowBefore or offset > BassDropConfig.WindowAfter then
+-- windowBonus (habilidade "Ouvido Fino") alarga a janela e o limite de cada nota.
+function DropCalc.GradeOffset(offset: number, windowBonus: number?): GradeDef?
+	local bonus = windowBonus or 0
+	if offset < -(BassDropConfig.WindowBefore + bonus) or offset > BassDropConfig.WindowAfter + bonus then
 		return nil
 	end
 	local distance = math.abs(offset)
 	for _, grade in BassDropConfig.Grades do
-		if distance <= grade.MaxOffset then
+		if distance <= grade.MaxOffset + bonus then
 			return grade
 		end
 	end
