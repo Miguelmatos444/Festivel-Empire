@@ -1,7 +1,8 @@
 --!strict
 --[[
 	HudView
-	HUD principal: contador de Hype (topo), botão "BATIDA" (fundo) e toasts.
+	HUD principal: contador de Hype e toasts (topo). O Hype ativo vem do minijogo de
+	setas no palco (ArrowGameView); já não existe botão de batida.
 	Responsivo por UIScale calculado a partir do tamanho do ecrã (mobile/PC/consola).
 	Toda a UI e ligações vivem numa Trove — Unmount() limpa tudo.
 ]]
@@ -14,13 +15,10 @@ local Types = require(ReplicatedStorage.Shared.Types)
 local BigNum = require(ReplicatedStorage.Shared.Util.BigNum)
 local NumberFormatter = require(ReplicatedStorage.Shared.Util.NumberFormatter)
 local Trove = require(ReplicatedStorage.Shared.Util.Trove)
-local Diag = require(ReplicatedStorage.Shared.Util.Diag)
+local PaidCratesConfig = require(ReplicatedStorage.Shared.Config.PaidCrates)
 
 local Client = script.Parent.Parent.Parent
 local StateController = require(Client.Controllers.StateController)
-local ClickController = require(Client.Controllers.ClickController)
-local BassDropController = require(Client.Controllers.BassDropController)
-local RetentionController = require(Client.Controllers.RetentionController)
 local Theme = require(script.Parent.Parent.Theme)
 local Components = require(script.Parent.Parent.Components)
 
@@ -118,8 +116,31 @@ function HudView.Mount()
 	rateLabel.Text = "+0 / s"
 	rateLabel.Parent = hypePanel
 
+	-- Poção da Sorte ativa (loja VIP): tempo restante
+	local luckLabel = makeLabel("Luck", Theme.Fonts.Display, Color3.fromRGB(120, 255, 150), 20)
+	luckLabel.LayoutOrder = 2
+	luckLabel.Size = UDim2.fromOffset(380, 24)
+	luckLabel.Visible = false
+	addStroke(luckLabel, Theme.Colors.Background, 1.5)
+	luckLabel.Parent = top
+
+	local function refreshLuck()
+		local snapshot = StateController.Get()
+		local remaining = if snapshot then snapshot.LuckUntil - os.time() else 0
+		luckLabel.Visible = remaining > 0
+		if remaining > 0 then
+			luckLabel.Text = string.format("🍀 Sorte ×%d · %d:%02d", PaidCratesConfig.LuckPotion.Multiplier, remaining // 60, remaining % 60)
+		end
+	end
+	trove:Add(task.spawn(function()
+		while true do
+			refreshLuck()
+			task.wait(1)
+		end
+	end))
+
 	local toastArea = makeTransparentFrame("Toasts")
-	toastArea.LayoutOrder = 2
+	toastArea.LayoutOrder = 3
 	toastArea.Size = UDim2.fromOffset(380, 210)
 	toastArea.Parent = top
 
@@ -130,87 +151,10 @@ function HudView.Mount()
 	toastLayout.Padding = UDim.new(0, 6)
 	toastLayout.Parent = toastArea
 
-	-- Fundo: botão BATIDA ----------------------------------------------------
-	local bottom = makeTransparentFrame("Bottom")
-	bottom.AnchorPoint = Vector2.new(0.5, 1)
-	bottom.Position = UDim2.new(0.5, 0, 1, -24)
-	bottom.Size = UDim2.fromOffset(220, 220)
-	bottom.Parent = screenGui
-
-	local bottomScale = Instance.new("UIScale")
-	bottomScale.Parent = bottom
-
-	local beatButton = Instance.new("TextButton")
-	beatButton.Name = "BeatButton"
-	beatButton.AnchorPoint = Vector2.new(0.5, 0.5)
-	beatButton.Position = UDim2.fromScale(0.5, 0.5)
-	beatButton.Size = UDim2.fromOffset(200, 200)
-	beatButton.BackgroundColor3 = Theme.Colors.Text
-	beatButton.AutoButtonColor = false
-	beatButton.Text = ""
-	beatButton.Selectable = true
-	addCorner(beatButton, UDim.new(0.5, 0))
-	addStroke(beatButton, Theme.Colors.Text, 4)
-	beatButton.Parent = bottom
-
-	local buttonGradient = Instance.new("UIGradient")
-	buttonGradient.Color = ColorSequence.new(Theme.Colors.Accent, Theme.Colors.AccentDark)
-	buttonGradient.Rotation = 90
-	buttonGradient.Parent = beatButton
-
-	local pulseScale = Instance.new("UIScale")
-	pulseScale.Parent = beatButton
-
-	local beatLabel = makeLabel("Label", Theme.Fonts.Display, Theme.Colors.Text, 40)
-	beatLabel.AnchorPoint = Vector2.new(0.5, 0.5)
-	beatLabel.Position = UDim2.fromScale(0.5, 0.42)
-	beatLabel.Size = UDim2.new(0.8, 0, 0, 44)
-	beatLabel.Text = "BATIDA"
-	addStroke(beatLabel, Theme.Colors.Background, 2)
-	beatLabel.Parent = beatButton
-
-	local perClickLabel = makeLabel("PerClick", Theme.Fonts.Body, Theme.Colors.Gold, 24)
-	perClickLabel.AnchorPoint = Vector2.new(0.5, 0.5)
-	perClickLabel.Position = UDim2.fromScale(0.5, 0.64)
-	perClickLabel.Size = UDim2.new(0.7, 0, 0, 26)
-	perClickLabel.Text = "+1"
-	addStroke(perClickLabel, Theme.Colors.Background, 1.5)
-	perClickLabel.Parent = beatButton
-
-	-- Botão AUTO (Gamepass Auto-Batida): o servidor dá as batidas; aqui só liga/desliga
-	local autoButton = Components.makeButton("Auto", Theme.Colors.Panel)
-	autoButton.AnchorPoint = Vector2.new(0, 0.5)
-	autoButton.Position = UDim2.new(1, 4, 0.5, 0)
-	autoButton.Size = UDim2.fromOffset(78, 48)
-	autoButton.Font = Theme.Fonts.Display
-	autoButton.TextColor3 = Theme.Colors.Text
-	autoButton.TextSize = 20
-	autoButton.Text = "AUTO"
-	autoButton.Visible = false
-	Components.addCorner(autoButton, UDim.new(0, 12))
-	local autoStroke = Components.addStroke(autoButton, Theme.Colors.TextMuted, 2)
-	autoButton.Parent = bottom
-
-	local function renderAuto()
-		local sync = RetentionController.Get()
-		local owns = RetentionController.Owns("AutoClicker")
-		local enabled = sync ~= nil and sync.AutoClick and owns
-		autoButton.Visible = owns
-		autoButton.BackgroundColor3 = if enabled then Theme.Colors.Success else Theme.Colors.Panel
-		autoStroke.Color = if enabled then Theme.Colors.Gold else Theme.Colors.TextMuted
-		autoButton.Text = if enabled then "AUTO ✓" else "AUTO"
-	end
-	trove:Connect(autoButton.Activated, function()
-		local sync = RetentionController.Get()
-		RetentionController.SetAutoClick(not (sync ~= nil and sync.AutoClick))
-	end)
-	trove:Add(RetentionController.Changed:Connect(renderAuto))
-
 	-- Escala responsiva --------------------------------------------------------
 	local function updateScale()
 		local scale = Components.computeScale(screenGui.AbsoluteSize)
 		topScale.Scale = scale
-		bottomScale.Scale = scale
 	end
 	trove:Connect(screenGui:GetPropertyChangedSignal("AbsoluteSize"), updateScale)
 
@@ -248,68 +192,6 @@ function HudView.Mount()
 			displayValue.Value = math.min(BigNum.toNumber(hype), COUNTER_TWEEN_LIMIT)
 		end
 	end
-
-	-- Efeitos de clique -------------------------------------------------------
-	local perClickValue: BigNum = BigNum.ONE
-	local floatingCount = 0
-
-	local function spawnFloatingText(text: string)
-		if floatingCount >= Theme.MaxFloatingTexts then
-			return
-		end
-		floatingCount += 1
-
-		local label = makeLabel("Float", Theme.Fonts.Display, Theme.Colors.Gold, 34)
-		label.AnchorPoint = Vector2.new(0.5, 0.5)
-		label.Size = UDim2.fromOffset(160, 40)
-		label.Position = UDim2.new(0.5, math.random(-60, 60), 0, 10)
-		label.Text = text
-		label.ZIndex = 5
-		local stroke = addStroke(label, Theme.Colors.Background, 2)
-		label.Parent = bottom
-
-		local tween = TweenService:Create(label, Theme.Tween.Float, {
-			Position = label.Position - UDim2.fromOffset(0, 90),
-			TextTransparency = 1,
-		})
-		TweenService:Create(stroke, Theme.Tween.Float, { Transparency = 1 }):Play()
-		tween.Completed:Once(function()
-			floatingCount -= 1
-			label:Destroy()
-		end)
-		tween:Play()
-	end
-
-	local function spawnRing()
-		local ring = makeTransparentFrame("Ring")
-		ring.AnchorPoint = Vector2.new(0.5, 0.5)
-		ring.Position = UDim2.fromScale(0.5, 0.5)
-		ring.Size = UDim2.fromScale(1, 1)
-		addCorner(ring, UDim.new(0.5, 0))
-		local stroke = addStroke(ring, Theme.Colors.Highlight, 4)
-		ring.Parent = beatButton
-
-		local tween = TweenService:Create(ring, Theme.Tween.Ring, { Size = UDim2.fromScale(1.45, 1.45) })
-		TweenService:Create(stroke, Theme.Tween.Ring, { Transparency = 1 }):Play()
-		tween.Completed:Once(function()
-			ring:Destroy()
-		end)
-		tween:Play()
-	end
-
-	trove:Connect(beatButton.Activated, function()
-		local sent = ClickController.RequestClick()
-		Diag.LogSampled("UI", "beat", "BATIDA premida → enviada ao servidor: " .. tostring(sent))
-		if not sent then
-			return
-		end
-		pulseScale.Scale = 0.9
-		TweenService:Create(pulseScale, Theme.Tween.Fast, { Scale = 1 }):Play()
-		spawnRing()
-		-- Durante o boost do Bass Drop, o "+N" mostra o ganho multiplicado
-		local gain = BigNum.mulNumber(perClickValue, BassDropController.GetBoostMultiplier())
-		spawnFloatingText("+" .. NumberFormatter.format(gain))
-	end)
 
 	-- Toasts -------------------------------------------------------------------
 	local toasts: { Frame } = {}
@@ -376,8 +258,6 @@ function HudView.Mount()
 			setHype(hype)
 		end
 		rateLabel.Text = "+" .. NumberFormatter.format(BigNum.deserialize(snapshot.HypePerSecond)) .. " / s"
-		perClickValue = BigNum.deserialize(snapshot.HypePerClick)
-		perClickLabel.Text = "+" .. NumberFormatter.format(perClickValue)
 	end
 
 	local function onNotice(notice: Notice)

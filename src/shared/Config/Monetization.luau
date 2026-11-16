@@ -22,8 +22,8 @@ local Gamepasses: { GamepassDef } = {
 	},
 	{
 		Key = "AutoClicker",
-		Name = "Auto-Batida",
-		Description = "O servidor dá 5 batidas por segundo por ti (liga/desliga no botão AUTO).",
+		Name = "Auto-Play",
+		Description = "No palco, acerta 70% das setas por ti (liga/desliga no botão AUTO).",
 		Id = 0,
 	},
 	{
@@ -46,7 +46,15 @@ local Products: { ProductDef } = {
 	{ Key = "HypeLarge", Name = "Pacote de Hype L", Description = "24 h do teu rendimento.", Id = 0, Reward = { IncomeMinutes = 1440 } },
 	{ Key = "EnergyFill", Name = "Energia Cheia", Description = "Enche a barra do Bass Drop.", Id = 0, Reward = { FillEnergy = true } },
 	{ Key = "CrateTen", Name = "Caixote x10", Description = "10 aberturas da melhor crate desbloqueada.", Id = 0, Reward = { Crates = 10 } },
+	-- Caixas da sorte (Config/PaidCrates). Random = true: mostram probabilidades e escondem-se onde o Roblox proíbe
+	{ Key = "StarCrate", Name = "🌟 Caixa Estrela", Description = "Melhor crate desbloqueada com sorte ×3 de Épico para cima.", Id = 0, Random = true, Reward = { PaidCrate = { Kind = "Star", Count = 1 } } },
+	{ Key = "StarCrateTen", Name = "🌟 Caixa Estrela ×10", Description = "10 Caixas Estrela de uma vez.", Id = 0, Random = true, Reward = { PaidCrate = { Kind = "Star", Count = 10 } } },
+	{ Key = "LegendaryCrate", Name = "👑 Caixa Lendária", Description = "Garante um artista Lendário ou melhor.", Id = 0, Random = true, Reward = { PaidCrate = { Kind = "Legendary", Count = 1 } } },
+	{ Key = "MythicCrate", Name = "🔮 Caixa Mítica", Description = "Garante um artista Mítico ou melhor.", Id = 0, Random = true, Reward = { PaidCrate = { Kind = "Mythic", Count = 1 } } },
+	{ Key = "LuckPotion", Name = "🍀 Poção da Sorte", Description = "30 min de sorte ×2 em todas as crates. Soma ao tempo que tiveres.", Id = 0, Random = true, Reward = { LuckMinutes = 30 } },
 }
+-- Preços sugeridos (definir no site do Roblox): Estrela 49 R$ · Estrela ×10 399 R$ ·
+-- Lendária 199 R$ · Mítica 799 R$ · Poção da Sorte 99 R$
 
 local GamepassByKey: { [string]: GamepassDef } = {}
 for _, def in Gamepasses do
@@ -68,7 +76,6 @@ return table.freeze({
 	Products = table.freeze(Products),
 	ProductById = table.freeze(ProductById),
 
-	AutoClicksPerSecond = 5, -- abaixo do limite de 15/s das batidas manuais
 	DoubleHypeMultiplier = 2,
 	TourAgentDiscBonus = 0.25,
 	MaxStoredReceipts = 100,

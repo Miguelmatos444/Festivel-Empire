@@ -66,6 +66,7 @@ local function buildSnapshot(player: Player, data: ProfileData): Snapshot
 		WorldTours = data.WorldTours,
 		StageTier = data.StageTier,
 		Clicks = data.Stats.Clicks,
+		LuckUntil = data.LuckUntil,
 		Equipment = table.clone(data.Equipment),
 		SkillTree = table.clone(data.SkillTree),
 	}
@@ -116,6 +117,10 @@ local function buildDelta(previous: Snapshot, current: Snapshot): (StateDelta, b
 	end
 	if previous.Clicks ~= current.Clicks then
 		delta.Clicks = current.Clicks
+		changed = true
+	end
+	if previous.LuckUntil ~= current.LuckUntil then
+		delta.LuckUntil = current.LuckUntil
 		changed = true
 	end
 

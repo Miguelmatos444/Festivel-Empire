@@ -2,7 +2,8 @@
 --[[
 	Config/Ambience
 	Ambiente do festival (tudo no cliente; nada replica):
-	  - Público por terreno: tamanho por tier, reação à música e ao Bass Drop
+	  - Público por terreno: tamanho pelo Hype ganho na run (+ World Tours), avatares dos
+	    amigos do dono à frente, reação à música e ao Bass Drop
 	  - Luzes da praça ao ritmo
 	  - Danças dos artistas (procedimentais por família, ou AnimationId próprio)
 	As distâncias de LOD estão em Config/Lod.Crowd.
@@ -12,19 +13,24 @@ local Types = require(script.Parent.Parent.Types)
 
 type DanceStyle = Types.DanceStyle
 
-export type CrowdTier = {
-	MinTier: number,
+export type CrowdLevel = {
+	MinHype: number, -- Hype ganho na run a partir do qual vale este nível
 	Own: number, -- pessoas no terreno do próprio jogador
-	Other: number, -- pessoas nos terrenos dos outros jogadores
+	Other: number, -- pessoas nos terrenos dos outros jogadores (visto por quem visita)
 }
 
+-- Nível replicado pelo servidor no atributo FE_CrowdLevel do dono (índice desta tabela)
 -- stylua: ignore
-local CROWD_BY_TIER: { CrowdTier } = {
-	{ MinTier = 1,  Own = 12, Other = 4 },
-	{ MinTier = 2,  Own = 20, Other = 6 },
-	{ MinTier = 4,  Own = 32, Other = 10 },
-	{ MinTier = 7,  Own = 44, Other = 14 },
-	{ MinTier = 10, Own = 60, Other = 18 },
+local CROWD_BY_HYPE: { CrowdLevel } = {
+	{ MinHype = 0,      Own = 6,  Other = 3 },
+	{ MinHype = 1e3,    Own = 10, Other = 4 },
+	{ MinHype = 1e5,    Own = 16, Other = 6 },
+	{ MinHype = 1e7,    Own = 22, Other = 8 },
+	{ MinHype = 1e9,    Own = 28, Other = 10 },
+	{ MinHype = 1e11,   Own = 36, Other = 12 },
+	{ MinHype = 1e13,   Own = 44, Other = 14 },
+	{ MinHype = 1e15,   Own = 52, Other = 16 },
+	{ MinHype = 1e17,   Own = 60, Other = 18 },
 }
 
 local DANCE_BY_FAMILY: { [string]: DanceStyle } = {
@@ -41,7 +47,40 @@ local ARTIST_ANIMATIONS: { [string]: number } = {}
 
 local Ambience = table.freeze({
 	Crowd = table.freeze({
-		ByTier = table.freeze(CROWD_BY_TIER),
+		ByHype = table.freeze(CROWD_BY_HYPE),
+		PerWorldTourOwn = 2, -- pessoas extra permanentes por World Tour (terreno próprio)
+		PerWorldTourOther = 1,
+		MaxOwn = 80,
+		MaxOther = 24,
+		-- Avatares dos amigos do dono (cliente: GetFriendsAsync + CreateHumanoidModelFromDescription)
+		Friends = table.freeze({
+			Enabled = true,
+			MaxOwn = 12, -- avatares completos no próprio terreno
+			MaxOther = 4, -- nos terrenos dos outros
+			FetchLimit = 60, -- amigos lidos da lista (os que estão no servidor vêm primeiro)
+			NameDistance = 70, -- distância máxima a que se vê o nome
+			-- Emotes R15 do Roblox (dança, vivas, aceno, dança 2, dança 3)
+			Animations = table.freeze({ 507771019, 507770677, 507770239, 507771955, 507772104 }),
+		}),
+		-- Bonecos-padrão do Roblox (R15) com cores aleatórias: enchem os lugares de avatar que os
+		-- amigos não ocupam. Max* = total de avatares (amigos + padrão) por terreno; o resto do
+		-- público são os bonecos simples.
+		DefaultAvatars = table.freeze({
+			Enabled = true,
+			MaxOwn = 24,
+			MaxOther = 6,
+		}),
+		-- Bonecos simples
+		HeightRange = table.freeze({ 0.9, 1.12 }),
+		FaceTexture = "rbxasset://textures/face.png",
+		HairColors = table.freeze({
+			Color3.fromRGB(30, 22, 18),
+			Color3.fromRGB(92, 58, 32),
+			Color3.fromRGB(214, 170, 90),
+			Color3.fromRGB(180, 60, 40),
+			Color3.fromRGB(255, 90, 180),
+			Color3.fromRGB(60, 200, 255),
+		}),
 		-- Zona do público (coordenadas do terreno): X em ±AreaHalfWidth, profundidade de Map.Plots.CrowdStart a CrowdEnd
 		AreaHalfWidth = 40,
 		DepthMargin = 3,

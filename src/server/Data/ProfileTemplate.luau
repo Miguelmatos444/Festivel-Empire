@@ -15,7 +15,7 @@ type RawData = { [string]: unknown }
 
 local ProfileTemplate = {}
 
-ProfileTemplate.Version = 2 -- v2: campo Social (Likes)
+ProfileTemplate.Version = 4 -- v2: Social (Likes); v3: estatísticas das setas; v4: Poção da Sorte
 
 function ProfileTemplate.Create(): Types.ProfileData
 	return {
@@ -42,6 +42,9 @@ function ProfileTemplate.Create(): Types.ProfileData
 			Clicks = 0,
 			PlayTime = 0,
 			BassDrops = 0,
+			ArrowHits = 0,
+			ArrowPerfects = 0,
+			BestCombo = 0,
 		},
 		Settings = {
 			MusicVolume = 0.8,
@@ -69,6 +72,7 @@ function ProfileTemplate.Create(): Types.ProfileData
 		Badges = {},
 		Receipts = {},
 		AutoClick = false,
+		LuckUntil = 0,
 		Social = {
 			LikesReceived = 0,
 			LikesGivenDay = -1,

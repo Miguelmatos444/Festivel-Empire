@@ -26,7 +26,8 @@ local DailyRewards: { RewardDef } = {
 
 -- stylua: ignore
 local DailyMissions: { MissionDef } = {
-	{ Id = "D_Clicks",    Name = "Ritmo constante",   Description = "Dá 1 500 batidas",               Metric = "Clicks",          Target = 1500, Reward = { IncomeMinutes = 20 } },
+	{ Id = "D_Clicks",    Name = "Ritmo constante",   Description = "Acerta 600 setas no palco",      Metric = "ArrowHits",       Target = 600,  Reward = { IncomeMinutes = 20 } },
+	{ Id = "D_Combo",     Name = "Em sintonia",       Description = "Faz um combo de 40 setas",       Metric = "ArrowCombo",      Target = 1,    Reward = { IncomeMinutes = 20 } },
 	{ Id = "D_Drops",     Name = "Mestre do Drop",    Description = "Faz 5 Bass Drops com sucesso",   Metric = "BassDrops",       Target = 5,    Reward = { IncomeMinutes = 20 } },
 	{ Id = "D_Perfect",   Name = "Timing perfeito",   Description = "Consegue 2 drops PERFEITOS",     Metric = "PerfectDrops",    Target = 2,    Reward = { IncomeMinutes = 30 } },
 	{ Id = "D_Equipment", Name = "Montar o som",      Description = "Compra 50 níveis de equipamento", Metric = "EquipmentLevels", Target = 50,   Reward = { IncomeMinutes = 15 } },
@@ -38,7 +39,7 @@ local DailyMissions: { MissionDef } = {
 -- stylua: ignore
 local WeeklyMissions: { MissionDef } = {
 	{ Id = "W_Drops",     Name = "Maratona de drops", Description = "Faz 40 Bass Drops com sucesso",  Metric = "BassDrops",       Target = 40,    Reward = { IncomeMinutes = 120, Crates = 3 } },
-	{ Id = "W_Clicks",    Name = "Mãos de ferro",     Description = "Dá 25 000 batidas",              Metric = "Clicks",          Target = 25000, Reward = { IncomeMinutes = 120, Crates = 3 } },
+	{ Id = "W_Clicks",    Name = "Mãos de ferro",     Description = "Acerta 10 000 setas no palco",   Metric = "ArrowHits",       Target = 10000, Reward = { IncomeMinutes = 120, Crates = 3 } },
 	{ Id = "W_Stage",     Name = "Obras no recinto",  Description = "Compra 1 palco novo",            Metric = "StagesBought",    Target = 1,     Reward = { IncomeMinutes = 180 } },
 	{ Id = "W_Crates",    Name = "Colecionador",      Description = "Abre 40 Vinyl Crates",           Metric = "CratesOpened",    Target = 40,    Reward = { Crates = 5 } },
 	{ Id = "W_Perfect",   Name = "Perfecionista",     Description = "Consegue 10 drops PERFEITOS",    Metric = "PerfectDrops",    Target = 10,    Reward = { IncomeMinutes = 120, Crates = 3 } },

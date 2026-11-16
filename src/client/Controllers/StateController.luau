@@ -76,6 +76,9 @@ local function applyDelta(delta: StateDelta)
 	if delta.Clicks then
 		nextState.Clicks = delta.Clicks
 	end
+	if delta.LuckUntil then
+		nextState.LuckUntil = delta.LuckUntil
+	end
 	local equipmentDelta = delta.Equipment
 	if equipmentDelta then
 		local merged = table.clone(current.Equipment)

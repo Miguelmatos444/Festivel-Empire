@@ -2,7 +2,7 @@
 --[[
 	EconomyService
 	Toda a economia de Hype é calculada aqui (servidor autoritativo):
-	  - cliques (via ServerNet, já com rate limit)
+	  - acertos do minijogo de setas (validados pelo ArrowGameService)
 	  - rendimento passivo num único loop a 1 Hz para todos os jogadores
 	  - rendimento offline no load do perfil
 	  - custos em massa por soma geométrica
@@ -13,15 +13,12 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Types = require(ReplicatedStorage.Shared.Types)
 local EconomyConfig = require(ReplicatedStorage.Shared.Config.Economy)
-local RemoteDefs = require(ReplicatedStorage.Shared.Net.RemoteDefs)
 local BigNum = require(ReplicatedStorage.Shared.Util.BigNum)
 local Signal = require(ReplicatedStorage.Shared.Util.Signal)
 local Trove = require(ReplicatedStorage.Shared.Util.Trove)
 local EquipmentCalc = require(ReplicatedStorage.Shared.Calc.EquipmentCalc)
 local StageCalc = require(ReplicatedStorage.Shared.Calc.StageCalc)
 local PrestigeCalc = require(ReplicatedStorage.Shared.Calc.PrestigeCalc)
-local Diag = require(ReplicatedStorage.Shared.Util.Diag)
-local ServerNet = require(script.Parent.Parent.Net.ServerNet)
 local DataService = require(script.Parent.DataService)
 
 type BigNum = BigNum.BigNum
@@ -43,11 +40,6 @@ local EconomyService = {}
 
 local hypeChanged: Signal.Signal<Player> = Signal.new()
 local offlineEarned: Signal.Signal<Player, BigNum, number> = Signal.new()
-local clicked: Signal.Signal<Player, number> = Signal.new()
-
--- (jogador, nº de batidas) — batidas aceites pelo servidor (manuais ou Auto-Batida).
--- Usado pelo Bass Drop (energia), missões e conquistas.
-EconomyService.Clicked = clicked
 
 -- Disparado sempre que o Hype de um jogador muda.
 EconomyService.HypeChanged = hypeChanged
@@ -140,7 +132,7 @@ function EconomyService.GetMultiplier(player: Player, source: string): number
 	return if extra and extra[source] then extra[source] else 1
 end
 
--- Definido pelo ArtistService: multiplicador global de Hype e bónus extra por batida
+-- Definido pelo ArtistService: multiplicador global de Hype e bónus extra por acerto
 function EconomyService.SetArtistModifiers(player: Player, hypeMultiplier: number, clickBonus: number)
 	artistModifiers[player] = { Hype = hypeMultiplier, Click = clickBonus }
 	EconomyService.InvalidateRates(player)
@@ -167,7 +159,7 @@ end
 
 -- Boost do Bass Drop -------------------------------------------------------------
 
--- Aplica-se a batidas e ao passivo (não ao offline). multiplier <= 1 remove o boost.
+-- Aplica-se aos acertos e ao passivo (não ao offline). multiplier <= 1 remove o boost.
 function EconomyService.SetBoost(player: Player, multiplier: number, endsAt: number)
 	if multiplier <= 1 then
 		boosts[player] = nil
@@ -276,31 +268,22 @@ local function onProfileLoaded(player: Player, data: ProfileData)
 	end
 end
 
--- Cliques e tick -------------------------------------------------------------
+-- Acertos e tick -------------------------------------------------------------
 
-local function onClick(player: Player)
+--[[
+	Acerto no minijogo de setas (ArrowGameService já validou tudo).
+	Hype = Hype por batida (cadeia completa: Batida Forte × Batida de Ouro × global)
+	       × factor (valor do tier × nota × combo) × boost do Bass Drop.
+	Devolve o Hype ganho (para o cliente mostrar o "+N").
+]]
+function EconomyService.GrantArrowHit(player: Player, factor: number): BigNum
 	local data = DataService.GetProfile(player)
-	if not data then
-		Diag.LogSampled(
-			"Economy",
-			"noprofile:" .. player.UserId,
-			string.format("batida de %s ignorada: perfil ainda não carregado", player.Name)
-		)
-		return
+	if not data or factor <= 0 then
+		return BigNum.ZERO
 	end
-	EconomyService.ApplyClicks(player, 1)
-end
-
--- Aplica `count` batidas de uma vez (manual = 1; Auto-Batida = 5 por segundo)
-function EconomyService.ApplyClicks(player: Player, count: number)
-	local data = DataService.GetProfile(player)
-	if not data or count <= 0 then
-		return
-	end
-	data.Stats.Clicks += count
-	local gain = BigNum.mulNumber(EconomyService.GetHypePerClick(player), EconomyService.GetBoostMultiplier(player) * count)
+	local gain = BigNum.mulNumber(EconomyService.GetHypePerClick(player), EconomyService.GetBoostMultiplier(player) * factor)
 	EconomyService.AddHype(player, gain)
-	clicked:Fire(player, count)
+	return gain
 end
 
 local function tick(deltaTime: number)
@@ -327,7 +310,6 @@ end
 -- Ciclo de vida --------------------------------------------------------------
 
 function EconomyService.Init()
-	ServerNet.Connect(RemoteDefs.Defs.Click, onClick)
 	trove:Add(DataService.ProfileLoaded:Connect(onProfileLoaded))
 	trove:Connect(Players.PlayerRemoving, function(player: Player)
 		debugPassiveOverride[player] = nil

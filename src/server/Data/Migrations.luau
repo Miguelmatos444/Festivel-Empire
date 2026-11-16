@@ -28,6 +28,25 @@ local steps: { [number]: Migration } = {
 			}
 		end
 	end,
+	-- v2 -> v3: estatísticas do minijogo de setas (Fase 9). Só acrescenta campos a 0.
+	[2] = function(data: RawData)
+		local stats = data.Stats
+		if type(stats) ~= "table" then
+			return -- o Reconcile cria Stats completo
+		end
+		local raw = stats :: RawData
+		for _, key in { "ArrowHits", "ArrowPerfects", "BestCombo" } do
+			if type(raw[key]) ~= "number" then
+				raw[key] = 0
+			end
+		end
+	end,
+	-- v3 -> v4: Poção da Sorte (loja VIP). Começa inativa.
+	[3] = function(data: RawData)
+		if type(data.LuckUntil) ~= "number" then
+			data.LuckUntil = 0
+		end
+	end,
 }
 
 -- Devolve (true) em sucesso, ou (false, motivo) se os dados não puderem ser usados.

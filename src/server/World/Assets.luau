@@ -22,6 +22,7 @@ local StagesConfig = require(ReplicatedStorage.Shared.Config.Stages)
 local DressingConfig = require(ReplicatedStorage.Shared.Config.Dressing)
 local MapCalc = require(ReplicatedStorage.Shared.Calc.MapCalc)
 local Placeholders = require(script.Parent.Placeholders)
+local ModelPaint = require(script.Parent.ModelPaint)
 
 type StageDef = Types.StageDef
 
@@ -50,6 +51,8 @@ local function findAsset(path: { string }): Model?
 		current = current:FindFirstChild(name)
 	end
 	if current and current:IsA("Model") then
+		-- Cores do Blender (uma vez por modelo-fonte); luzes marcadas exceto em artistas e kits
+		ModelPaint.Paint(current, path[1] ~= "Artists" and path[1] ~= "RarityKits")
 		return current
 	end
 	return nil

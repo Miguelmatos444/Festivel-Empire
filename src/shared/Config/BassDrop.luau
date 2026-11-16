@@ -22,7 +22,6 @@ local BassDrop = table.freeze({
 	-- Energia
 	MaxEnergy = 100,
 	PassiveEnergyPerSecond = 1,
-	EnergyPerClick = 0.4,
 
 	-- Build-up e janela (segundos relativos ao instante do drop)
 	BuildUpBeats = 8,

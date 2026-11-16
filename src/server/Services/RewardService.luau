@@ -7,12 +7,15 @@
 	  Discs         -> Discos de Platina
 	  Crates        -> aberturas grátis da melhor crate desbloqueada
 	  FillEnergy    -> barra do Bass Drop cheia (agora ou na próxima carga)
+	  PaidCrate     -> caixas pagas (Config/PaidCrates): sorte/garantia, sem custo de Hype
+	  LuckMinutes   -> Poção da Sorte (soma ao tempo restante, com teto)
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Types = require(ReplicatedStorage.Shared.Types)
 local RetentionConfig = require(ReplicatedStorage.Shared.Config.Retention)
+local PaidCratesConfig = require(ReplicatedStorage.Shared.Config.PaidCrates)
 local BigNum = require(ReplicatedStorage.Shared.Util.BigNum)
 local NumberFormatter = require(ReplicatedStorage.Shared.Util.NumberFormatter)
 local DataService = require(script.Parent.DataService)
@@ -58,6 +61,25 @@ function RewardService.Grant(player: Player, reward: RewardDef): string
 	if reward.FillEnergy then
 		BassDropService.FillEnergy(player)
 		table.insert(parts, "barra do Bass Drop cheia")
+	end
+
+	local paid = reward.PaidCrate
+	if paid and paid.Count > 0 then
+		local opened = GachaService.OpenPaid(player, paid.Kind, paid.Count)
+		if opened > 0 then
+			local def = (PaidCratesConfig.Kinds :: { [string]: PaidCratesConfig.PaidCrateDef })[paid.Kind]
+			table.insert(parts, string.format("%d× %s", opened, if def then def.Name else paid.Kind))
+		end
+	end
+
+	local luckMinutes = reward.LuckMinutes
+	if luckMinutes and luckMinutes > 0 then
+		local now = os.time()
+		local maxSeconds = PaidCratesConfig.LuckPotion.MaxMinutes * 60
+		local start = math.max(data.LuckUntil, now)
+		data.LuckUntil = math.min(start + luckMinutes * 60, now + maxSeconds)
+		PlayerStateService.MarkDirty(player)
+		table.insert(parts, string.format("Sorte ×%d durante %d min", PaidCratesConfig.LuckPotion.Multiplier, math.floor((data.LuckUntil - now) / 60)))
 	end
 
 	local crates = reward.Crates

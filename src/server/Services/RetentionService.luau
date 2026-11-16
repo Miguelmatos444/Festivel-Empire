@@ -23,7 +23,6 @@ local Diag = require(ReplicatedStorage.Shared.Util.Diag)
 local RetentionCalc = require(ReplicatedStorage.Shared.Calc.RetentionCalc)
 local ServerNet = require(script.Parent.Parent.Net.ServerNet)
 local DataService = require(script.Parent.DataService)
-local EconomyService = require(script.Parent.EconomyService)
 local PlayerStateService = require(script.Parent.PlayerStateService)
 local BassDropService = require(script.Parent.BassDropService)
 local EquipmentService = require(script.Parent.EquipmentService)
@@ -33,6 +32,8 @@ local StageService = require(script.Parent.StageService)
 local PrestigeService = require(script.Parent.PrestigeService)
 local MonetizationService = require(script.Parent.MonetizationService)
 local RewardService = require(script.Parent.RewardService)
+local ArrowGameService = require(script.Parent.ArrowGameService)
+local ArrowGameConfig = require(ReplicatedStorage.Shared.Config.ArrowGame)
 
 type ProfileData = Types.ProfileData
 type MissionData = Types.MissionData
@@ -315,8 +316,11 @@ function RetentionService.Init()
 	end)
 
 	-- Progresso das missões (só a partir de eventos do servidor)
-	trove:Add(EconomyService.Clicked:Connect(function(player: Player, count: number)
-		RetentionService.AddProgress(player, "Clicks", count)
+	trove:Add(ArrowGameService.ArrowHit:Connect(function(player: Player, _grade: Types.ArrowGrade, combo: number, auto: boolean)
+		RetentionService.AddProgress(player, "ArrowHits", 1)
+		if not auto and combo == ArrowGameConfig.Combo.MissionTarget then
+			RetentionService.AddProgress(player, "ArrowCombo", 1)
+		end
 	end))
 	trove:Add(BassDropService.DropSucceeded:Connect(function(player: Player, grade: Types.DropGrade)
 		RetentionService.AddProgress(player, "BassDrops", 1)

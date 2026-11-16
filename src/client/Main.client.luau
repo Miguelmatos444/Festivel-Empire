@@ -16,7 +16,7 @@ local Client = script.Parent
 
 local NetController = require(Client.Controllers.NetController)
 local StateController = require(Client.Controllers.StateController)
-local ClickController = require(Client.Controllers.ClickController)
+local ArrowController = require(Client.Controllers.ArrowController)
 local EquipmentController = require(Client.Controllers.EquipmentController)
 local BassDropController = require(Client.Controllers.BassDropController)
 local AudioController = require(Client.Controllers.AudioController)
@@ -34,6 +34,8 @@ local RetentionController = require(Client.Controllers.RetentionController)
 local SocialController = require(Client.Controllers.SocialController)
 local CrowdController = require(Client.Controllers.CrowdController)
 local AmbienceController = require(Client.Controllers.AmbienceController)
+local StageLightController = require(Client.Controllers.StageLightController)
+local DanceFloorController = require(Client.Controllers.DanceFloorController)
 local FestivalsView = require(Client.UI.Views.FestivalsView)
 local SocialHudView = require(Client.UI.Views.SocialHudView)
 local MissionsView = require(Client.UI.Views.MissionsView)
@@ -41,6 +43,8 @@ local WelcomeBackView = require(Client.UI.Views.WelcomeBackView)
 local VipButtonView = require(Client.UI.Views.VipButtonView)
 local DropBarView = require(Client.UI.Views.DropBarView)
 local ReturnView = require(Client.UI.Views.ReturnView)
+local ArrowGameView = require(Client.UI.Views.ArrowGameView)
+local StationsView = require(Client.UI.Views.StationsView)
 
 local failures: { string } = {}
 
@@ -56,7 +60,7 @@ end
 NetController.Init()
 
 run("StateController.Init", StateController.Init)
-run("ClickController.Init", ClickController.Init)
+run("ArrowController.Init", ArrowController.Init)
 run("EquipmentController.Init", EquipmentController.Init)
 run("BassDropController.Init", BassDropController.Init)
 run("AudioController.Init", AudioController.Init)
@@ -69,6 +73,8 @@ run("RetentionController.Init", RetentionController.Init)
 run("SocialController.Init", SocialController.Init)
 run("CrowdController.Init", CrowdController.Init)
 run("AmbienceController.Init", AmbienceController.Init)
+run("StageLightController.Init", StageLightController.Init)
+run("DanceFloorController.Init", DanceFloorController.Init)
 
 run("HudView.Mount", HudView.Mount)
 run("ShopView.Mount", ShopView.Mount)
@@ -82,6 +88,8 @@ run("FestivalsView.Mount", FestivalsView.Mount)
 run("SocialHudView.Mount", SocialHudView.Mount)
 run("DropBarView.Mount", DropBarView.Mount)
 run("ReturnView.Mount", ReturnView.Mount)
+run("ArrowGameView.Mount", ArrowGameView.Mount)
+run("StationsView.Mount", StationsView.Mount)
 
 run("StateController.Start", StateController.Start) -- envia ClientReady
 run("AudioController.Start", AudioController.Start)
@@ -90,6 +98,7 @@ run("StageAnimController.Start", StageAnimController.Start)
 run("ArtistDanceController.Start", ArtistDanceController.Start)
 run("CrowdController.Start", CrowdController.Start)
 run("AmbienceController.Start", AmbienceController.Start)
+run("DanceFloorController.Start", DanceFloorController.Start)
 
 if #failures > 0 then
 	warn(string.format("[Client] Arrancou com %d falha(s): %s", #failures, table.concat(failures, ", ")))

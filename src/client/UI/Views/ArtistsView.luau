@@ -154,7 +154,7 @@ local function effectsSummary(sync: ArtistsSync): string
 	local effects = sync.Effects
 	local parts = { "Hype ×" .. NumberFormatter.format(effects.HypeMultiplier) }
 	if effects.ClickBonus > 0 then
-		table.insert(parts, string.format("Batida +%d%%", math.floor(effects.ClickBonus * 100 + 0.5)))
+		table.insert(parts, string.format("Acerto +%d%%", math.floor(effects.ClickBonus * 100 + 0.5)))
 	end
 	if effects.EnergyBonus > 0 then
 		table.insert(parts, string.format("Energia +%d%%", math.floor(effects.EnergyBonus * 100 + 0.5)))
