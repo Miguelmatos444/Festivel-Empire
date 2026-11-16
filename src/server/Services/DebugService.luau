@@ -31,6 +31,7 @@ local ArtistService = require(script.Parent.ArtistService)
 local PrestigeService = require(script.Parent.PrestigeService)
 local MonetizationService = require(script.Parent.MonetizationService)
 local RetentionService = require(script.Parent.RetentionService)
+local SocialService = require(script.Parent.SocialService)
 local MonetizationConfig = require(ReplicatedStorage.Shared.Config.Monetization)
 local RetentionConfig = require(ReplicatedStorage.Shared.Config.Retention)
 local ArtistsConfig = require(ReplicatedStorage.Shared.Config.Artists)
@@ -71,6 +72,11 @@ local COMMAND_ORDER = {
 	"missions",
 	"product",
 	"gamepass",
+	"social",
+	"friends",
+	"likes",
+	"headliner",
+	"visit",
 	"plots",
 	"home",
 	"state",
@@ -558,6 +564,77 @@ commands.gamepass = {
 		end
 		MonetizationService.DebugSetOwned(player, key, args[2] == "on")
 		return key .. ": " .. args[2]
+	end,
+}
+
+commands.social = {
+	Usage = "social",
+	Description = "Mostra amigos, grupo, Likes, Headliner e o multiplicador Social",
+	Run = function(player: Player, _args: { string }): string
+		return SocialService.Describe(player)
+	end,
+}
+
+commands.friends = {
+	Usage = "friends <n>|off",
+	Description = "Simula N amigos no servidor (off = contagem real)",
+	Run = function(player: Player, args: { string }): string
+		if args[1] == "off" then
+			SocialService.DebugSetFriends(player, nil)
+			return "Amigos: contagem real. " .. SocialService.Describe(player)
+		end
+		local count = tonumber(args[1])
+		if not count or count < 0 then
+			return "Uso: /fe friends <n>|off"
+		end
+		SocialService.DebugSetFriends(player, math.floor(count))
+		return SocialService.Describe(player)
+	end,
+}
+
+commands.likes = {
+	Usage = "likes <n>|reset",
+	Description = "Define os Likes recebidos (reset = podes voltar a dar Likes hoje)",
+	Run = function(player: Player, args: { string }): string
+		if args[1] == "reset" then
+			return if SocialService.DebugResetGiven(player)
+				then "Likes dados hoje reiniciados."
+				else "Perfil não carregado."
+		end
+		local count = tonumber(args[1])
+		if not count then
+			return "Uso: /fe likes <n>|reset"
+		end
+		if not SocialService.DebugSetLikes(player, count) then
+			return "Perfil não carregado."
+		end
+		return SocialService.Describe(player)
+	end,
+}
+
+commands.headliner = {
+	Usage = "headliner start|stop",
+	Description = "Começa ou termina o evento Headliner neste servidor",
+	Run = function(player: Player, args: { string }): string
+		local action = args[1]
+		if action ~= "start" and action ~= "stop" then
+			return "Uso: /fe headliner start|stop"
+		end
+		SocialService.DebugHeadliner(action == "start")
+		return SocialService.Describe(player)
+	end,
+}
+
+commands.visit = {
+	Usage = "visit <1-6>",
+	Description = "Visita o festival do terreno indicado",
+	Run = function(player: Player, args: { string }): string
+		local index = tonumber(args[1])
+		if not index or index < 1 or index > MapConfig.Plots.Count then
+			return "Uso: /fe visit <1-" .. MapConfig.Plots.Count .. ">"
+		end
+		local _, message = SocialService.Visit(player, math.floor(index))
+		return message
 	end,
 }
 

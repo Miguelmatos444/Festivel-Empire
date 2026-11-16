@@ -1,17 +1,47 @@
 --!strict
 --[[
 	SideMenu
-	Coluna única de botões à esquerda (VOLTAR · LOJA · PALCOS · ARTISTAS), empilhada
-	com UIListLayout para nunca se sobrepor à barra de drop nem entre si.
-	Cada View cria o seu botão e chama SideMenu.Attach(holder, ordem).
+	Coluna única de botões à esquerda (VOLTAR · LOJA · PALCOS · ARTISTAS · WORLD TOUR ·
+	MISSÕES · FESTIVAIS), empilhada com UIListLayout para nunca se sobrepor à barra de
+	drop nem entre si. Cada View cria o seu botão e chama SideMenu.Attach(holder, ordem).
 	Botões invisíveis (ex.: VOLTAR perto do terreno) deixam de ocupar espaço.
+	A coluna encolhe (UIScale) quando os botões não cabem na altura do ecrã (telemóvel).
 ]]
 
 local Players = game:GetService("Players")
 
 local SideMenu = {}
 
+local BUTTON_SIZE = UDim2.fromOffset(112, 88)
+local BUTTON_HEIGHT = 88
+local PADDING = 10
+local SCREEN_MARGIN = 24
+local MIN_SCALE = 0.5
+
 local container: Frame? = nil
+local columnScale: UIScale? = nil
+local screen: ScreenGui? = nil
+
+-- Altura da coluna sem escala (calculada pelos botões visíveis, para evitar ciclos com o UIScale)
+local function updateScale()
+	local frame, scale, gui = container, columnScale, screen
+	if not frame or not scale or not gui then
+		return
+	end
+	local visible = 0
+	for _, child in frame:GetChildren() do
+		if child:IsA("GuiObject") and child.Visible then
+			visible += 1
+		end
+	end
+	local height = visible * BUTTON_HEIGHT + math.max(visible - 1, 0) * PADDING
+	local available = gui.AbsoluteSize.Y - SCREEN_MARGIN * 2
+	if height <= 0 or available <= 0 then
+		scale.Scale = 1
+		return
+	end
+	scale.Scale = math.clamp(available / height, MIN_SCALE, 1)
+end
 
 local function getContainer(): Frame
 	local existing = container
@@ -42,23 +72,32 @@ local function getContainer(): Frame
 	layout.HorizontalAlignment = Enum.HorizontalAlignment.Left
 	layout.VerticalAlignment = Enum.VerticalAlignment.Center
 	layout.SortOrder = Enum.SortOrder.LayoutOrder
-	layout.Padding = UDim.new(0, 10)
+	layout.Padding = UDim.new(0, PADDING)
 	layout.Parent = frame
+
+	local scale = Instance.new("UIScale")
+	scale.Parent = frame
 
 	screenGui.Parent = playerGui
 	container = frame
+	columnScale = scale
+	screen = screenGui
+	screenGui:GetPropertyChangedSignal("AbsoluteSize"):Connect(updateScale)
 	return frame
 end
 
 -- Move o botão (holder com o seu UIScale) para a coluna, na posição `order`
-local BUTTON_SIZE = UDim2.fromOffset(112, 88) -- 6 botões cabem num ecrã de telemóvel
-
 function SideMenu.Attach(holder: GuiObject, order: number)
 	holder.AnchorPoint = Vector2.zero
 	holder.Position = UDim2.new()
 	holder.Size = BUTTON_SIZE
 	holder.LayoutOrder = order
 	holder.Parent = getContainer()
+	holder:GetPropertyChangedSignal("Visible"):Connect(updateScale)
+	holder.Destroying:Once(function()
+		task.defer(updateScale)
+	end)
+	updateScale()
 end
 
 return table.freeze(SideMenu)

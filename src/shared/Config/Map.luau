@@ -27,6 +27,20 @@ local Map = table.freeze({
 		CrateStationAngles = table.freeze({ 30, 150, 270 }), -- graus, entre os caminhos
 		LeaderboardRadius = 80,
 		LeaderboardAngles = table.freeze({ 90, 210 }),
+		-- Decoração (Fase 11). Ângulos em graus; os caminhos estão em 0, 60, 120, …
+		Decor = table.freeze({
+			LightTowerRadius = 110, -- no anel de passeio, entre os caminhos
+			LightTowerAngles = table.freeze({ 30, 90, 150, 210, 270, 330 }),
+			LightTowerHeight = 22,
+			FoodTruckRadius = 88,
+			FoodTruckAngles = table.freeze({ 330, 30, 150 }),
+			FlagRadius = 20, -- à volta do monumento
+			FlagCount = 8,
+			FlagHeight = 14,
+			BenchRadius = 96,
+			BenchAngles = table.freeze({ 15, 75, 135, 195, 255, 315 }),
+			ArchHeight = 14, -- arco de entrada em cada caminho (no limite exterior do anel)
+		}),
 	}),
 
 	Plots = table.freeze({

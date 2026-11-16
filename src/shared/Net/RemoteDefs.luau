@@ -13,6 +13,7 @@ local PyroConfig = require(script.Parent.Parent.Config.Pyro)
 local StagesConfig = require(script.Parent.Parent.Config.Stages)
 local ArtistsConfig = require(script.Parent.Parent.Config.Artists)
 local SkillTreeConfig = require(script.Parent.Parent.Config.SkillTree)
+local MapConfig = require(script.Parent.Parent.Config.Map)
 
 type RemoteDef = Types.RemoteDef
 
@@ -38,6 +39,8 @@ export type Registry = {
 	ClaimMission: RemoteDef,
 	RedeemCode: RemoteDef,
 	SetAutoClick: RemoteDef,
+	VisitPlot: RemoteDef,
+	GiveLike: RemoteDef,
 	StateSnapshot: RemoteDef,
 	StateDelta: RemoteDef,
 	Notify: RemoteDef,
@@ -47,6 +50,7 @@ export type Registry = {
 	ArtistsSync: RemoteDef,
 	CrateResult: RemoteDef,
 	RetentionSync: RemoteDef,
+	SocialSync: RemoteDef,
 }
 
 local UID_ARG: Types.ArgSpec = { Kind = "string", MaxLength = 12, Pattern = "^%d+$" }
@@ -196,6 +200,18 @@ local Defs: Registry = {
 		RateLimit = { PerSecond = 2, Burst = 4 },
 		Args = { { Kind = "boolean" } },
 	},
+	VisitPlot = { -- (plotIndex) — teleporta para o spawn do festival desse terreno
+		Name = "VisitPlot",
+		Direction = "ClientToServer",
+		RateLimit = { PerSecond = 1 / 3, Burst = 1 },
+		Args = { { Kind = "number", Integer = true, Min = 1, Max = MapConfig.Plots.Count } },
+	},
+	GiveLike = { -- (plotIndex) — Like ao festival em que o jogador está
+		Name = "GiveLike",
+		Direction = "ClientToServer",
+		RateLimit = { PerSecond = 1, Burst = 2 },
+		Args = { { Kind = "number", Integer = true, Min = 1, Max = MapConfig.Plots.Count } },
+	},
 
 	-- Servidor -> Cliente ----------------------------------------------------
 	StateSnapshot = { -- payload: Types.PlayerStateSnapshot
@@ -243,6 +259,11 @@ local Defs: Registry = {
 		Direction = "ServerToClient",
 		Args = {},
 	},
+	SocialSync = { -- payload: Types.SocialSync (só o próprio jogador)
+		Name = "SocialSync",
+		Direction = "ServerToClient",
+		Args = {},
+	},
 }
 
 local All: { RemoteDef } = {
@@ -267,6 +288,8 @@ local All: { RemoteDef } = {
 	Defs.ClaimMission,
 	Defs.RedeemCode,
 	Defs.SetAutoClick,
+	Defs.VisitPlot,
+	Defs.GiveLike,
 	Defs.StateSnapshot,
 	Defs.StateDelta,
 	Defs.Notify,
@@ -276,6 +299,7 @@ local All: { RemoteDef } = {
 	Defs.ArtistsSync,
 	Defs.CrateResult,
 	Defs.RetentionSync,
+	Defs.SocialSync,
 }
 
 return table.freeze({

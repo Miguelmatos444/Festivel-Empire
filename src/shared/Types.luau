@@ -69,7 +69,34 @@ export type ProfileData = {
 	Badges: { [string]: boolean },
 	Receipts: { string }, -- últimos PurchaseId processados (idempotência)
 	AutoClick: boolean,
+	-- Social
+	Social: SocialData,
 }
+
+-- Social / Ambiente ------------------------------------------------------------------
+
+export type SocialData = {
+	LikesReceived: number, -- Likes recebidos de sempre (bónus de Hype)
+	LikesGivenDay: number, -- dia UTC (RetentionCalc.GetDayIndex) a que LikedToday se refere
+	LikedToday: { [string]: boolean }, -- UserId (string) dos festivais com Like dado hoje
+}
+
+export type SocialSync = {
+	Friends: number, -- amigos no servidor (contam até Config/Social.Friends.MaxFriends)
+	InGroup: boolean,
+	LikesReceived: number,
+	LikedToday: { [string]: boolean },
+	GivenToday: number,
+	Multiplier: number, -- multiplicador social atual (inclui o Headliner)
+}
+
+export type HeadlinerState = {
+	Active: boolean,
+	StartsAt: number, -- hora do servidor (Unix) do início do evento atual ou do próximo
+	EndsAt: number,
+}
+
+export type DanceStyle = "Sway" | "Jump" | "Headbang" | "Spin"
 
 -- Monetização / Retenção ---------------------------------------------------------
 

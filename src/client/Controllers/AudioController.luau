@@ -13,6 +13,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local SoundService = game:GetService("SoundService")
+local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
 
 local Types = require(ReplicatedStorage.Shared.Types)
@@ -21,7 +22,9 @@ local LodConfig = require(ReplicatedStorage.Shared.Config.Lod)
 local BassDropConfig = require(ReplicatedStorage.Shared.Config.BassDrop)
 local Trove = require(ReplicatedStorage.Shared.Util.Trove)
 local DropCalc = require(ReplicatedStorage.Shared.Calc.DropCalc)
+local StageCalc = require(ReplicatedStorage.Shared.Calc.StageCalc)
 local BassDropController = require(script.Parent.BassDropController)
+local StateController = require(script.Parent.StateController)
 
 type DropState = Types.DropState
 type DropResolved = Types.DropResolved
@@ -31,7 +34,10 @@ local POSITIONAL_SOUND_LIFETIME = 8
 local AudioController = {}
 
 local trove = Trove.new()
-local music: Sound? = nil
+local music: Sound? = nil -- faixa atual (a que está a entrar no crossfade)
+local musicTracks: { [number]: Sound } = {} -- soundId -> Sound (uma instância por faixa)
+local currentEra: string? = nil
+local musicStarted = false
 local cues: { [string]: Sound } = {}
 local intensity = 0
 local lastPhase: Types.DropPhase? = nil
@@ -169,9 +175,79 @@ local function onResolved(result: DropResolved)
 	end
 end
 
+-- Música por era (crossfade) ------------------------------------------------------------
+
+local function getEraSoundId(era: string): number
+	local id = AudioConfig.EraMusic[era] or 0
+	return if id > 0 then id else AudioConfig.MusicLoop
+end
+
+local function getTrack(soundId: number): Sound?
+	if soundId <= 0 then
+		return nil
+	end
+	local existing = musicTracks[soundId]
+	if existing then
+		return existing
+	end
+	local sound = createSound("FestivalMusic_" .. soundId, soundId, 0, true)
+	if sound then
+		musicTracks[soundId] = sound
+	end
+	return sound
+end
+
+-- Alinha a posição da música com o relógio do servidor (igual para todos) e toca
+local function syncAndPlay(sound: Sound)
+	local function start()
+		if sound.TimeLength > 0 then
+			sound.TimePosition = BassDropController.GetServerTime() % sound.TimeLength
+		end
+		sound:Play()
+	end
+	if sound.IsLoaded then
+		start()
+	else
+		trove:Add(sound.Loaded:Once(start))
+	end
+end
+
+local function crossfadeTo(target: Sound?)
+	local previous = music
+	if target == previous then
+		return
+	end
+	music = target
+	local fade = TweenInfo.new(AudioConfig.CrossfadeSeconds, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
+	if previous then
+		local fadeOut = TweenService:Create(previous, fade, { Volume = 0 })
+		fadeOut.Completed:Once(function()
+			if music ~= previous then
+				previous:Stop()
+			end
+		end)
+		fadeOut:Play()
+	end
+	if target then
+		target.Volume = 0
+		syncAndPlay(target)
+		TweenService:Create(target, fade, { Volume = AudioConfig.Volumes.Music }):Play()
+	end
+end
+
+-- Define a era do festival do próprio jogador (troca de faixa com crossfade)
+function AudioController.SetEra(era: string)
+	if era == currentEra then
+		return
+	end
+	currentEra = era
+	if musicStarted then
+		crossfadeTo(getTrack(getEraSoundId(era)))
+	end
+end
+
 function AudioController.Init()
 	local volumes = AudioConfig.Volumes
-	music = createSound("FestivalMusic", AudioConfig.MusicLoop, volumes.Music, true)
 	addCue("Riser", AudioConfig.BuildUpRiser, volumes.Riser)
 	addCue("Impact", AudioConfig.DropImpact, volumes.Impact)
 	for id, soundId in AudioConfig.Pyro do
@@ -181,25 +257,17 @@ function AudioController.Init()
 	trove:Connect(RunService.RenderStepped, updateIntensity)
 	trove:Add(BassDropController.Changed:Connect(onDropState))
 	trove:Add(BassDropController.Resolved:Connect(onResolved))
+	trove:Add(StateController.Changed:Connect(function(snapshot: Types.PlayerStateSnapshot)
+		AudioController.SetEra(StageCalc.GetDef(snapshot.StageTier).Era)
+	end))
 end
 
 function AudioController.Start()
-	local current = music
-	if not current then
-		return
-	end
-	-- Alinha a posição da música com o relógio do servidor (igual para todos)
-	local function syncAndPlay()
-		if current.TimeLength > 0 then
-			current.TimePosition = BassDropController.GetServerTime() % current.TimeLength
-		end
-		current:Play()
-	end
-	if current.IsLoaded then
-		syncAndPlay()
-	else
-		trove:Add(current.Loaded:Once(syncAndPlay))
-	end
+	musicStarted = true
+	local snapshot = StateController.Get()
+	local era = currentEra or (if snapshot then StageCalc.GetDef(snapshot.StageTier).Era else "Underground")
+	currentEra = era
+	crossfadeTo(getTrack(getEraSoundId(era)))
 end
 
 return AudioController

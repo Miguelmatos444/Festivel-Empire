@@ -15,7 +15,7 @@ type RawData = { [string]: unknown }
 
 local ProfileTemplate = {}
 
-ProfileTemplate.Version = 1
+ProfileTemplate.Version = 2 -- v2: campo Social (Likes)
 
 function ProfileTemplate.Create(): Types.ProfileData
 	return {
@@ -69,6 +69,11 @@ function ProfileTemplate.Create(): Types.ProfileData
 		Badges = {},
 		Receipts = {},
 		AutoClick = false,
+		Social = {
+			LikesReceived = 0,
+			LikesGivenDay = -1,
+			LikedToday = {},
+		},
 	}
 end
 

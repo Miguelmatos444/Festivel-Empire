@@ -66,6 +66,7 @@ local trove = Trove.new()
 local sessions: { [Player]: Session } = {}
 local pendingFills: { [Player]: boolean } = {} -- "Energia Cheia" comprada fora da fase de carga
 local saveDropReady: { [Player]: { [string]: number } } = {} -- uid do artista -> os.clock() em que fica pronto
+local energyMultipliers: { [Player]: { [string]: number } } = {} -- fonte ("Headliner", "Tutorial") -> multiplicador
 
 local function serverNow(): number
 	return Workspace:GetServerTimeNow()
@@ -325,7 +326,31 @@ local function addEnergy(player: Player, amount: number)
 end
 
 local function energyMultiplier(player: Player): number
-	return 1 + ArtistService.GetEffects(player).EnergyBonus
+	local multiplier = 1 + ArtistService.GetEffects(player).EnergyBonus
+	local extra = energyMultipliers[player]
+	if extra then
+		for _, value in extra do
+			multiplier *= value
+		end
+	end
+	return multiplier
+end
+
+-- Multiplicador extra de energia por fonte (evento Headliner, tutorial). value <= 1 remove a fonte.
+function BassDropService.SetEnergyMultiplier(player: Player, source: string, value: number)
+	local extra = energyMultipliers[player]
+	if value <= 1 then
+		if extra then
+			extra[source] = nil
+			if next(extra) == nil then
+				energyMultipliers[player] = nil
+			end
+		end
+		return
+	end
+	local target = extra or {}
+	target[source] = value
+	energyMultipliers[player] = target
 end
 
 -- Ativação -------------------------------------------------------------------
@@ -464,6 +489,7 @@ function BassDropService.Init()
 		sessions[player] = nil
 		saveDropReady[player] = nil
 		pendingFills[player] = nil
+		energyMultipliers[player] = nil
 	end)
 end
 

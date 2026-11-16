@@ -57,12 +57,7 @@ end
 -- true se a posição (mundo) está dentro dos limites do terreno do jogador
 function PlotService.IsInsidePlot(player: Player, position: Vector3): boolean
 	local index = playerPlots[player]
-	if not index then
-		return false
-	end
-	local plots = MapConfig.Plots
-	local localPosition = MapCalc.GetPlotCFrame(index):PointToObjectSpace(position)
-	return math.abs(localPosition.X) <= plots.Width / 2 and math.abs(localPosition.Z) <= plots.Depth / 2
+	return index ~= nil and MapCalc.IsInsidePlot(index, position)
 end
 
 local function getBaseAttachment(index: number, name: string): Attachment?
@@ -145,7 +140,8 @@ function PlotService.RefreshSign(index: number)
 		local tours = if data.WorldTours > 0
 			then string.rep("★", math.min(data.WorldTours, 5)) .. " World Tour " .. data.WorldTours .. " · "
 			else ""
-		subtitle.Text = string.format("%sTier %d · %s · Era %s", tours, def.Tier, def.Name, def.Era)
+		local likes = if data.Social.LikesReceived > 0 then " · ❤ " .. data.Social.LikesReceived else ""
+		subtitle.Text = string.format("%sTier %d · %s · Era %s%s", tours, def.Tier, def.Name, def.Era, likes)
 	else
 		subtitle.Text = "A preparar o palco…"
 	end
@@ -238,11 +234,11 @@ end
 
 -- Teleporte ------------------------------------------------------------------
 
-function PlotService.TeleportHome(player: Player): boolean
-	local index = playerPlots[player]
+-- Teleporta para o spawn do terreno `index` (próprio ou de outro jogador), com cooldown partilhado
+function PlotService.TeleportToPlot(player: Player, index: number): boolean
 	local character = player.Character
 	local humanoid = if character then character:FindFirstChildOfClass("Humanoid") else nil
-	if not index or not character or not humanoid or humanoid.Health <= 0 then
+	if not character or not humanoid or humanoid.Health <= 0 or owners[index] == nil then
 		return false
 	end
 	local now = os.clock()
@@ -257,6 +253,21 @@ function PlotService.TeleportHome(player: Player): boolean
 	humanoid.Sit = false
 	character:PivotTo(spawnCFrame)
 	return true
+end
+
+function PlotService.TeleportHome(player: Player): boolean
+	local index = playerPlots[player]
+	return index ~= nil and PlotService.TeleportToPlot(player, index)
+end
+
+-- Terreno onde a personagem do jogador está agora (nil = praça / sem personagem)
+function PlotService.GetPlotIndexOfCharacter(player: Player): number?
+	local character = player.Character
+	local root = if character then character:FindFirstChild("HumanoidRootPart") else nil
+	if not root or not root:IsA("BasePart") then
+		return nil
+	end
+	return MapCalc.GetPlotIndexAt(root.Position)
 end
 
 -- Ciclo de vida --------------------------------------------------------------

@@ -60,6 +60,7 @@ local rateCache: { [Player]: RateCache } = {}
 local boosts: { [Player]: Boost } = {}
 local artistModifiers: { [Player]: { Hype: number, Click: number } } = {}
 local gamepassMultipliers: { [Player]: number } = {}
+local extraMultipliers: { [Player]: { [string]: number } } = {} -- fonte ("Social", "Tutorial") -> multiplicador
 
 local function assertGrowthRate(rate: number)
 	local bounds = EconomyConfig.GrowthRate
@@ -91,6 +92,12 @@ local function getRates(player: Player): RateCache?
 		* skills.HypeMultiplier
 		* artistMultiplier
 		* (gamepassMultipliers[player] or 1)
+	local extra = extraMultipliers[player]
+	if extra then
+		for _, value in extra do
+			globalMultiplier *= value
+		end
+	end
 	local clickMultiplier = (1 + (if modifiers then modifiers.Click else 0)) * skills.ClickMultiplier
 	local rates: RateCache = {
 		PerClick = BigNum.mulNumber(EquipmentCalc.GetHypePerClick(data.Equipment), globalMultiplier * clickMultiplier),
@@ -104,6 +111,33 @@ end
 function EconomyService.SetGamepassMultiplier(player: Player, multiplier: number)
 	gamepassMultipliers[player] = if multiplier > 1 then multiplier else nil
 	EconomyService.InvalidateRates(player)
+end
+
+-- Multiplicador global extra por fonte (Social = amigos × grupo × Likes × Headliner; Tutorial).
+-- Aplica-se depois do Gamepass Hype ×2. Um valor igual a 1 remove a fonte.
+function EconomyService.SetMultiplier(player: Player, source: string, value: number)
+	local extra = extraMultipliers[player]
+	local current = if extra then extra[source] else nil
+	local normalized: number? = if value <= 0 or math.abs(value - 1) < 1e-9 then nil else value
+	if current == normalized then
+		return
+	end
+	if normalized then
+		local target = extra or {}
+		target[source] = normalized
+		extraMultipliers[player] = target
+	elseif extra then
+		extra[source] = nil
+		if next(extra) == nil then
+			extraMultipliers[player] = nil
+		end
+	end
+	EconomyService.InvalidateRates(player)
+end
+
+function EconomyService.GetMultiplier(player: Player, source: string): number
+	local extra = extraMultipliers[player]
+	return if extra and extra[source] then extra[source] else 1
 end
 
 -- Definido pelo ArtistService: multiplicador global de Hype e bónus extra por batida
@@ -301,6 +335,7 @@ function EconomyService.Init()
 		boosts[player] = nil
 		artistModifiers[player] = nil
 		gamepassMultipliers[player] = nil
+		extraMultipliers[player] = nil
 	end)
 end
 

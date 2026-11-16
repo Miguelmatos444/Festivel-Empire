@@ -205,6 +205,14 @@ function MapService.Init()
 	if plazaRoot then
 		Assets.PivotRoot(plaza, CFrame.new(0, plazaRoot.Size.Y / 2, 0))
 	end
+	-- Decoração da praça (modelo à parte, para não depender de uma praça exportada antes da Fase 11)
+	local decor = Assets.GetPlazaDecorTemplate():Clone()
+	decor.Name = "PlazaDecor"
+	local decorRoot = Assets.GetRoot(decor)
+	if decorRoot then
+		Assets.PivotRoot(decor, CFrame.new(0, decorRoot.Size.Y / 2, 0))
+	end
+	decor.Parent = plaza
 	plaza.Parent = folder
 
 	local plotsFolder = Instance.new("Folder")

@@ -174,6 +174,25 @@ function Assets.GetPlazaTemplate(): Model
 	return cached
 end
 
+-- Decoração da praça: ServerStorage/Assets/PlazaDecor (Model com Root; partes com o
+-- atributo RhythmLight = true mudam de cor ao ritmo no cliente)
+function Assets.GetPlazaDecorTemplate(): Model
+	local custom = findAsset({ "PlazaDecor" })
+	if custom then
+		if Assets.GetRoot(custom) then
+			anchorAll(custom)
+			return custom
+		end
+		warnOnce("PlazaDecor:root", "PlazaDecor: sem 'Root' (BasePart) — a usar o placeholder.")
+	end
+	local cached = cache.PlazaDecor
+	if not cached then
+		cached = Placeholders.BuildPlazaDecor()
+		cache.PlazaDecor = cached
+	end
+	return cached
+end
+
 -- Decoração do terreno por era: ServerStorage/Assets/Decor/<Era> (Underground, Ascensão, Estrelato, Lenda)
 function Assets.GetDecorTemplate(era: Types.EraName): Model
 	local custom = findAsset({ "Decor", era })

@@ -32,6 +32,23 @@ function MapCalc.PlazaPoint(angleDegrees: number, radius: number, y: number): CF
 	return CFrame.lookAt(position, Vector3.new(0, y, 0))
 end
 
+-- true se a posição (mundo) está dentro dos limites do terreno `index` (vista de cima)
+function MapCalc.IsInsidePlot(index: number, position: Vector3): boolean
+	local plots = MapConfig.Plots
+	local localPosition = MapCalc.GetPlotCFrame(index):PointToObjectSpace(position)
+	return math.abs(localPosition.X) <= plots.Width / 2 and math.abs(localPosition.Z) <= plots.Depth / 2
+end
+
+-- Terreno em que a posição está (nil = praça / fora dos terrenos)
+function MapCalc.GetPlotIndexAt(position: Vector3): number?
+	for index = 1, MapConfig.Plots.Count do
+		if MapCalc.IsInsidePlot(index, position) then
+			return index
+		end
+	end
+	return nil
+end
+
 function MapCalc.GetStageDef(tier: number): Types.StageDef
 	local clamped = math.clamp(math.floor(tier), 1, StagesConfig.MaxTier)
 	return StagesConfig.List[clamped]

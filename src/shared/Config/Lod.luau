@@ -20,6 +20,15 @@ local Lod = table.freeze({
 		VolumeScale = 0.6,
 	}),
 
+	-- Público dos OUTROS terrenos (o próprio é sempre completo):
+	-- animado (só saltos) até AnimatedDistance, parado até StaticDistance, escondido além
+	Crowd = table.freeze({
+		AnimatedDistance = 120,
+		StaticDistance = 250,
+		OtherUpdateRate = 15, -- atualizações por segundo dos públicos dos outros terrenos
+		CheckInterval = 0.5, -- segundos entre verificações de distância
+	}),
+
 	-- Animação de troca de palco dos outros terrenos:
 	-- completa até FullDistance, sem efeitos/som até MaxDistance, salto direto ao fim além
 	StageAnimation = table.freeze({

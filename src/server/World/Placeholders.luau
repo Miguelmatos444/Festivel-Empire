@@ -233,6 +233,119 @@ function Placeholders.BuildStage(def: StageDef): Model
 	return model
 end
 
+-- Decoração da praça ---------------------------------------------------------------
+--[[
+	Torres de luz, roulottes de comida, bandeiras à volta do monumento, bancos e um
+	arco de entrada em cada caminho. Partes com o atributo RhythmLight = true mudam
+	de cor ao ritmo no cliente (usa o mesmo atributo nos modelos do Blender).
+]]
+local DECOR_COLORS = {
+	Color3.fromRGB(255, 60, 172),
+	Color3.fromRGB(43, 210, 255),
+	Color3.fromRGB(255, 209, 102),
+	Color3.fromRGB(57, 217, 138),
+	Color3.fromRGB(160, 120, 255),
+	Color3.fromRGB(255, 120, 60),
+}
+
+local function rhythmLight(part: BasePart, range: number)
+	part:SetAttribute("RhythmLight", true)
+	local light = Instance.new("PointLight")
+	light.Range = range
+	light.Brightness = 2
+	light.Shadows = false
+	light.Color = part.Color
+	light.Parent = part
+end
+
+local function buildPlazaDecor(visual: Model)
+	local plaza = MapConfig.Plaza
+	local decor = plaza.Decor
+	local metal = Color3.fromRGB(60, 60, 68)
+
+	-- Torres de luz no anel de passeio
+	for index, angle in decor.LightTowerAngles do
+		local base = MapCalc.PlazaPoint(angle, decor.LightTowerRadius, 0)
+		local height = decor.LightTowerHeight
+		Placeholders.NewPart("LightTower_" .. index, Vector3.new(1.5, height, 1.5), base * CFrame.new(0, height / 2, 0), metal, Enum.Material.Metal, visual)
+		Placeholders.NewPart("LightTowerFoot_" .. index, Vector3.new(4, 1, 4), base * CFrame.new(0, 0.5, 0), metal, Enum.Material.DiamondPlate, visual)
+		local lamp = Placeholders.NewPart(
+			"LightLamp_" .. index,
+			Vector3.new(4, 2, 4),
+			base * CFrame.new(0, height + 1, 0),
+			DECOR_COLORS[(index - 1) % #DECOR_COLORS + 1],
+			Enum.Material.Neon,
+			visual
+		)
+		rhythmLight(lamp, 34)
+	end
+
+	-- Roulottes de comida, viradas para o centro
+	for index, angle in decor.FoodTruckAngles do
+		local base = MapCalc.PlazaPoint(angle, decor.FoodTruckRadius, 0)
+		local color = DECOR_COLORS[(index + 1) % #DECOR_COLORS + 1]
+		local body = Placeholders.NewPart("FoodTruck_" .. index, Vector3.new(10, 6, 5), base * CFrame.new(0, 3.6, 0), color, Enum.Material.SmoothPlastic, visual)
+		addLabel(body, "COMIDA", Color3.new(1, 1, 1))
+		Placeholders.NewPart("FoodTruckCab_" .. index, Vector3.new(3.5, 4, 5), base * CFrame.new(6.75, 2.6, 0), Color3.fromRGB(230, 230, 235), Enum.Material.SmoothPlastic, visual)
+		local awning = Placeholders.NewPart("FoodTruckAwning_" .. index, Vector3.new(10, 0.3, 3), base * CFrame.new(0, 6.2, -3.4) * CFrame.Angles(math.rad(-15), 0, 0), Color3.fromRGB(255, 255, 255), Enum.Material.Fabric, visual)
+		awning.CanCollide = false
+		for _, wheelX in { -3.5, 3.5, 6.75 } do
+			local wheel = Placeholders.NewPart("Wheel", Vector3.new(1.2, 2, 2), base * CFrame.new(wheelX, 1, 2.6), Color3.fromRGB(25, 25, 28), Enum.Material.SmoothPlastic, visual)
+			wheel.Shape = Enum.PartType.Cylinder
+			wheel.CanCollide = false
+		end
+	end
+
+	-- Bandeiras à volta do monumento
+	for index = 1, decor.FlagCount do
+		local angle = (index - 0.5) * 360 / decor.FlagCount
+		local base = MapCalc.PlazaPoint(angle, decor.FlagRadius, 0)
+		local height = decor.FlagHeight
+		Placeholders.NewPart("FlagPole_" .. index, Vector3.new(0.5, height, 0.5), base * CFrame.new(0, height / 2, 0), Color3.fromRGB(220, 220, 225), Enum.Material.Metal, visual)
+		local flag = Placeholders.NewPart(
+			"Flag_" .. index,
+			Vector3.new(4, 2.6, 0.15),
+			base * CFrame.new(2.25, height - 1.6, 0),
+			DECOR_COLORS[(index - 1) % #DECOR_COLORS + 1],
+			Enum.Material.Fabric,
+			visual
+		)
+		flag.CanCollide = false
+	end
+
+	-- Bancos
+	for index, angle in decor.BenchAngles do
+		local base = MapCalc.PlazaPoint(angle, decor.BenchRadius, 0)
+		local wood = Color3.fromRGB(150, 105, 65)
+		Placeholders.NewPart("BenchSeat_" .. index, Vector3.new(6, 0.5, 2), base * CFrame.new(0, 1.6, 0), wood, Enum.Material.WoodPlanks, visual)
+		Placeholders.NewPart("BenchBack_" .. index, Vector3.new(6, 1.6, 0.4), base * CFrame.new(0, 2.6, 0.9), wood, Enum.Material.WoodPlanks, visual)
+		for _, legX in { -2.5, 2.5 } do
+			Placeholders.NewPart("BenchLeg", Vector3.new(0.4, 1.4, 1.6), base * CFrame.new(legX, 0.7, 0), metal, Enum.Material.Metal, visual)
+		end
+	end
+
+	-- Arco de entrada no início de cada caminho (limite da praça)
+	for index = 1, MapConfig.Plots.Count do
+		local angle = (index - 1) * 360 / MapConfig.Plots.Count
+		local base = MapCalc.PlazaPoint(angle, plaza.Radius + 1, 0)
+		local halfSpan = plaza.PathWidth / 2 + 1
+		local height = decor.ArchHeight
+		local color = MapConfig.Plots.Colors[index] or Color3.new(1, 1, 1)
+		for _, side in { -1, 1 } do
+			Placeholders.NewPart("ArchPillar", Vector3.new(1.5, height, 1.5), base * CFrame.new(side * halfSpan, height / 2, 0), metal, Enum.Material.Metal, visual)
+		end
+		local beam = Placeholders.NewPart(
+			"ArchBeam_" .. index,
+			Vector3.new(halfSpan * 2 + 1.5, 1.6, 1.5),
+			base * CFrame.new(0, height + 0.8, 0),
+			color,
+			Enum.Material.Neon,
+			visual
+		)
+		beam:SetAttribute("RhythmLight", true)
+	end
+end
+
 -- Praça ----------------------------------------------------------------------
 -- Origem = centro do mapa, no chão. Root = disco do anel de passeio (caixa).
 function Placeholders.BuildPlaza(): Model
@@ -289,6 +402,20 @@ function Placeholders.BuildPlaza(): Model
 		addAttachment(root, "Leaderboard_" .. index, cframe.Position)
 	end
 
+	return model
+end
+
+-- Decoração da praça como modelo próprio (override: ServerStorage/Assets/PlazaDecor).
+-- Origem = centro do mapa, no chão. Root = caixa do anel de passeio.
+function Placeholders.BuildPlazaDecor(): Model
+	local outer = MapConfig.Plaza.RingOuterRadius
+	local model = Instance.new("Model")
+	model.Name = "PlazaDecor"
+	makeRoot(model, Vector3.new(outer * 2, 1, outer * 2), CFrame.new(0, 0.5, 0))
+	local visual = Instance.new("Model")
+	visual.Name = "Visual"
+	visual.Parent = model
+	buildPlazaDecor(visual)
 	return model
 end
 
@@ -508,6 +635,10 @@ function Placeholders.ExportAll(): number
 	end
 	if not assets:FindFirstChild("Plaza") then
 		Placeholders.BuildPlaza().Parent = assets
+		created += 1
+	end
+	if not assets:FindFirstChild("PlazaDecor") then
+		Placeholders.BuildPlazaDecor().Parent = assets
 		created += 1
 	end
 	if not assets:FindFirstChild("PlotSign") then

@@ -14,7 +14,15 @@ local PYRO_SOUNDS: { [string]: number } = {
 }
 
 local Audio = table.freeze({
-	MusicLoop = 0, -- música do festival em loop (~128 BPM)
+	MusicLoop = 0, -- música do festival em loop (~128 BPM); usada nas eras sem id próprio
+	-- Música por era do palco do próprio jogador (0 = usa MusicLoop). Troca com crossfade.
+	EraMusic = table.freeze({
+		Underground = 0,
+		["Ascensão"] = 0,
+		Estrelato = 0,
+		Lenda = 0,
+	} :: { [string]: number }),
+	CrossfadeSeconds = 2.5,
 	BuildUpRiser = 0, -- tocado no início do build-up
 	DropImpact = 0, -- tocado num drop bem-sucedido
 	Pyro = table.freeze(PYRO_SOUNDS),

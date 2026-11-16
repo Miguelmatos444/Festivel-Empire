@@ -18,6 +18,16 @@ local Migrations = {}
 local steps: { [number]: Migration } = {
 	-- v0 -> v1: dados sem DataVersion (anteriores ao sistema de versões). Nada a converter.
 	[0] = function(_data: RawData) end,
+	-- v1 -> v2: dados sociais (Likes). Ninguém perde progresso: só acrescenta o campo.
+	[1] = function(data: RawData)
+		if type(data.Social) ~= "table" then
+			data.Social = {
+				LikesReceived = 0,
+				LikesGivenDay = -1,
+				LikedToday = {},
+			}
+		end
+	end,
 }
 
 -- Devolve (true) em sucesso, ou (false, motivo) se os dados não puderem ser usados.
