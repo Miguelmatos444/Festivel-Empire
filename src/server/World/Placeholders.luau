@@ -19,6 +19,7 @@ local ServerStorage = game:GetService("ServerStorage")
 
 local Types = require(ReplicatedStorage.Shared.Types)
 local MapConfig = require(ReplicatedStorage.Shared.Config.Map)
+local ArtistsConfig = require(ReplicatedStorage.Shared.Config.Artists)
 local StagesConfig = require(ReplicatedStorage.Shared.Config.Stages)
 local MapCalc = require(ReplicatedStorage.Shared.Calc.MapCalc)
 
@@ -112,6 +113,27 @@ local function addLabel(part: BasePart, text: string, color: Color3)
 	label.Font = Enum.Font.FredokaOne
 	label.TextScaled = true
 	label.TextColor3 = color
+	label.Text = text
+	label.Parent = gui
+end
+
+-- Letreiro flutuante (vê-se de qualquer lado)
+local function addBillboard(part: BasePart, text: string, color: Color3, size: Vector2, offsetY: number)
+	local gui = Instance.new("BillboardGui")
+	gui.Name = "PlaceholderBillboard"
+	gui.Size = UDim2.fromScale(size.X, size.Y)
+	gui.StudsOffsetWorldSpace = Vector3.new(0, offsetY, 0)
+	gui.LightInfluence = 0
+	gui.MaxDistance = 250
+	gui.Parent = part
+
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.fromScale(1, 1)
+	label.BackgroundTransparency = 1
+	label.Font = Enum.Font.FredokaOne
+	label.TextScaled = true
+	label.TextColor3 = color
+	label.TextStrokeTransparency = 0.2
 	label.Text = text
 	label.Parent = gui
 end
@@ -265,16 +287,66 @@ function Placeholders.BuildPlaza(): Model
 		strip.CanCollide = false
 	end
 
-	Placeholders.NewDisc("MonumentBase", plaza.MonumentRadius * 2, 3, Vector3.new(0, 1.5, 0), stone, Enum.Material.Marble, visual)
-	Placeholders.NewPart(
+	-- Zona das Crates: círculo com borda neon, coluna ao centro e as 5 crates em roda
+	local zone = plaza.CrateZone
+	local zoneTop = zone.Height
+	Placeholders.NewDisc("CrateZoneBorder", zone.Radius * 2, zoneTop - 0.05, Vector3.new(0, (zoneTop - 0.05) / 2, 0), zone.BorderColor, Enum.Material.Neon, visual)
+	Placeholders.NewDisc(
+		"CrateZoneFloor",
+		(zone.Radius - zone.BorderWidth) * 2,
+		zoneTop,
+		Vector3.new(0, zoneTop / 2, 0),
+		zone.FloorColor,
+		Enum.Material.Marble,
+		visual
+	)
+	addAttachment(root, "CrateZone", Vector3.new(0, zoneTop, 0))
+
+	local plinthHeight = 2
+	Placeholders.NewDisc(
+		"MonumentBase",
+		plaza.MonumentRadius * 2,
+		plinthHeight,
+		Vector3.new(0, zoneTop + plinthHeight / 2, 0),
+		stone,
+		Enum.Material.Marble,
+		visual
+	)
+	local columnHeight = 30
+	local column = Placeholders.NewPart(
 		"MonumentColumn",
-		Vector3.new(4, 30, 4),
-		CFrame.new(0, 18, 0),
+		Vector3.new(4, columnHeight, 4),
+		CFrame.new(0, zoneTop + plinthHeight + columnHeight / 2, 0),
 		Color3.fromRGB(255, 60, 172),
 		Enum.Material.Neon,
 		visual
 	)
-	addAttachment(root, "Monument", Vector3.new(0, 3, 0))
+	addBillboard(column, "VINYL CRATES", zone.BorderColor, Vector2.new(24, 5), columnHeight / 2 + 4)
+	addAttachment(root, "Monument", Vector3.new(0, zoneTop + plinthHeight, 0))
+
+	for index, crate in ArtistsConfig.Crates do
+		local angle = 90 + (index - 1) * 360 / #ArtistsConfig.Crates
+		local base = MapCalc.PlazaPoint(angle, zone.DisplayRadius, 0)
+		local pedestalHeight = 3
+		Placeholders.NewPart(
+			"CratePedestal_" .. index,
+			Vector3.new(4, pedestalHeight, 4),
+			base + Vector3.new(0, zoneTop + pedestalHeight / 2, 0),
+			Color3.fromRGB(30, 30, 40),
+			Enum.Material.Metal,
+			visual
+		)
+		local box = Placeholders.NewPart(
+			"CrateDisplay_" .. index,
+			Vector3.new(3, 3, 3),
+			base + Vector3.new(0, zoneTop + pedestalHeight + 1.5, 0),
+			crate.Color,
+			Enum.Material.Neon,
+			visual
+		)
+		addBillboard(box, crate.Name, crate.Color, Vector2.new(10, 2), 3.5)
+		addAttachment(root, "CrateDisplay_" .. index, box.Position)
+	end
 
 	for index, angle in plaza.CrateStationAngles do
 		local cframe = MapCalc.PlazaPoint(angle, plaza.CrateStationRadius, 0.65)

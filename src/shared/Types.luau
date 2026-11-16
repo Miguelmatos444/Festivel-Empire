@@ -301,6 +301,15 @@ export type CrateDef = {
 	RequiredTier: number,
 	Cost: number,
 	EraFactor: number,
+	MinRarity: string, -- 1ª raridade da janela da crate (Config/Artists.SlotOdds define o tamanho)
+	Color: Color3, -- cor da crate (expositor na praça e UI)
+}
+
+-- Uma linha da tabela de probabilidades de uma crate (ArtistCalc.GetCrateOdds)
+export type CrateOdd = {
+	Rarity: RarityDef,
+	Chance: number, -- 0..1
+	Slot: number, -- posição na janela (1 = mais comum)
 }
 
 export type PityLevel = {

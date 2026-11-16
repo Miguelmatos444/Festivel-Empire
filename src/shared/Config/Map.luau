@@ -22,7 +22,25 @@ local Map = table.freeze({
 		Radius = 100,
 		RingOuterRadius = 120, -- anel de passeio entre a praça e os terrenos
 		PathWidth = 12, -- marcação do caminho até cada terreno
-		MonumentRadius = 12,
+		MonumentRadius = 4, -- base da coluna neon, no centro da Zona das Crates
+
+		-- Zona das Crates (círculo no centro da praça, centro = origem do mapa).
+		-- Pisar dentro de TriggerRadius abre o menu das crates; sair (além de
+		-- TriggerRadius + ExitMargin) fecha-o. Só apresentação: o servidor valida as compras.
+		CrateZone = table.freeze({
+			Radius = 24, -- plataforma visível (borda neon incluída)
+			BorderWidth = 1.5,
+			Height = 0.85, -- topo da plataforma
+			TriggerRadius = 22,
+			ExitMargin = 1, -- histerese para não abrir/fechar na borda
+			TriggerHeight = 12, -- acima do topo da plataforma (saltar não fecha)
+			DisplayRadius = 15, -- expositores das 5 crates
+			CheckInterval = 0.2, -- s entre verificações no cliente (5 Hz)
+			FloorColor = Color3.fromRGB(40, 26, 70),
+			BorderColor = Color3.fromRGB(255, 209, 102),
+		}),
+
+		-- Estações antigas (prompt "Abrir Vinyl Crates"): a apagar depois do OK à Zona das Crates
 		CrateStationRadius = 55,
 		CrateStationAngles = table.freeze({ 30, 150, 270 }), -- graus, entre os caminhos
 		LeaderboardRadius = 80,

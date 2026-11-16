@@ -1,24 +1,39 @@
 --!strict
 --[[
 	Config/Artists
-	Vinyl Crates, os 25 artistas (5 por crate, 1 por família de raridade), estrelas,
-	limites das habilidades, slots e regras da coleção.
-	A raridade exata (22 possíveis) é sorteada à parte: é uma "versão" do artista da família.
+	Vinyl Crates, os 25 artistas (5 por crate), estrelas, limites das habilidades,
+	slots e regras da coleção.
+
+	Sorteio de uma crate:
+	  - Raridade: cada crate tem uma janela de #SlotOdds raridades seguidas a começar em
+	    MinRarity (Underground 1–6, Ascensão 5–10, Estrelato 9–14, Lenda 13–18,
+	    Orbital 17–22). A probabilidade depende só da posição na janela (SlotOdds).
+	  - Artista: um dos 5 artistas da crate, com igual probabilidade. A raridade é a
+	    "versão" desse artista.
+	A Family de cada artista mantém-se para o Dueto (parceiro "Legendary" da crate).
 ]]
 
 local Types = require(script.Parent.Parent.Types)
+local RaritiesConfig = require(script.Parent.Rarities)
 
 type CrateDef = Types.CrateDef
 type ArtistDef = Types.ArtistDef
 
+local function rgb(r: number, g: number, b: number): Color3
+	return Color3.fromRGB(r, g, b)
+end
+
 -- stylua: ignore
 local Crates: { CrateDef } = {
-	{ Id = "Underground", Name = "Crate Underground",       Era = "Underground", RequiredTier = 1,  Cost = 1e3,   EraFactor = 1 },
-	{ Id = "Ascensao",    Name = "Crate Ascensão",          Era = "Ascensão",    RequiredTier = 4,  Cost = 250e6, EraFactor = 2 },
-	{ Id = "Estrelato",   Name = "Crate Estrelato",         Era = "Estrelato",   RequiredTier = 7,  Cost = 10e12, EraFactor = 4 },
-	{ Id = "Lenda",       Name = "Crate Lenda",             Era = "Lenda",       RequiredTier = 10, Cost = 1e15,  EraFactor = 8 },
-	{ Id = "Orbital",     Name = "Crate Especial Orbital",  Era = "Lenda",       RequiredTier = 12, Cost = 25e15, EraFactor = 15 },
+	{ Id = "Underground", Name = "Crate Underground",      Era = "Underground", RequiredTier = 1,  Cost = 1e3,   EraFactor = 1,  MinRarity = "Common",    Color = rgb(255, 120, 70) },
+	{ Id = "Ascensao",    Name = "Crate Ascensão",         Era = "Ascensão",    RequiredTier = 4,  Cost = 250e6, EraFactor = 2,  MinRarity = "Brilliant", Color = rgb(43, 210, 255) },
+	{ Id = "Estrelato",   Name = "Crate Estrelato",        Era = "Estrelato",   RequiredTier = 7,  Cost = 10e12, EraFactor = 4,  MinRarity = "Supreme",   Color = rgb(255, 209, 102) },
+	{ Id = "Lenda",       Name = "Crate Lenda",            Era = "Lenda",       RequiredTier = 10, Cost = 1e15,  EraFactor = 8,  MinRarity = "Mythic",    Color = rgb(160, 120, 255) },
+	{ Id = "Orbital",     Name = "Crate Especial Orbital", Era = "Lenda",       RequiredTier = 12, Cost = 25e15, EraFactor = 15, MinRarity = "Cosmic",    Color = rgb(255, 60, 172) },
 }
+
+-- Probabilidade por posição na janela de raridades da crate (1ª = mais comum). Soma 1.
+local SlotOdds: { number } = { 0.50, 0.25, 0.13, 0.07, 0.04, 0.01 }
 
 local List: { ArtistDef } = {
 	-- Underground
@@ -53,16 +68,29 @@ local List: { ArtistDef } = {
 	{ Id = "Supernova", Name = "Supernova", Crate = "Orbital", Family = "Mythic", Ability = { Kind = "FullShow" } },
 }
 
+do
+	local total = 0
+	for _, chance in SlotOdds do
+		assert(chance > 0, "Config/Artists: SlotOdds só aceita valores > 0")
+		total += chance
+	end
+	assert(math.abs(total - 1) < 1e-9, "Config/Artists: SlotOdds tem de somar 1 (soma " .. total .. ")")
+end
+
 local CratesById: { [string]: CrateDef } = {}
 local CrateIds: { string } = {}
 for _, crate in Crates do
 	assert(CratesById[crate.Id] == nil, "Config/Artists: crate duplicada " .. crate.Id)
+	local first = RaritiesConfig.IndexById[crate.MinRarity]
+	assert(first, "Config/Artists: MinRarity desconhecida em " .. crate.Id)
+	assert(first + #SlotOdds - 1 <= RaritiesConfig.Count, "Config/Artists: janela de raridades fora da lista em " .. crate.Id)
 	CratesById[crate.Id] = table.freeze(crate)
 	table.insert(CrateIds, crate.Id)
 end
 
 local ById: { [string]: ArtistDef } = {}
-local ByCrateFamily: { [string]: ArtistDef } = {} -- "Crate|Family" -> artista
+local ByCrateFamily: { [string]: ArtistDef } = {} -- "Crate|Family" -> artista (Dueto)
+local ByCrate: { [string]: { ArtistDef } } = {} -- crate -> artistas sorteáveis
 for _, def in List do
 	assert(ById[def.Id] == nil, "Config/Artists: artista duplicado " .. def.Id)
 	assert(CratesById[def.Crate], "Config/Artists: crate desconhecida em " .. def.Id)
@@ -70,11 +98,15 @@ for _, def in List do
 	assert(ByCrateFamily[key] == nil, "Config/Artists: duas famílias iguais na crate " .. key)
 	ById[def.Id] = table.freeze(def)
 	ByCrateFamily[key] = def
+	local crateList = ByCrate[def.Crate] or {}
+	table.insert(crateList, def)
+	ByCrate[def.Crate] = crateList
 end
 for _, crate in Crates do
 	for _, family in { "Common", "Rare", "Epic", "Legendary", "Mythic" } do
 		assert(ByCrateFamily[crate.Id .. "|" .. family], "Config/Artists: falta a família " .. family .. " em " .. crate.Id)
 	end
+	table.freeze(ByCrate[crate.Id])
 end
 
 return table.freeze({
@@ -84,6 +116,11 @@ return table.freeze({
 	List = table.freeze(List),
 	ById = table.freeze(ById),
 	ByCrateFamily = table.freeze(ByCrateFamily),
+	ByCrate = table.freeze(ByCrate),
+
+	-- Sorteio
+	SlotOdds = table.freeze(SlotOdds),
+	AnnounceFromSlot = 5, -- anunciar a todos as 2 raridades mais raras de cada crate
 
 	-- Estrelas: bónus de Hype e força da habilidade (recarga do Salva-Drop é dividida)
 	MaxStars = 3,

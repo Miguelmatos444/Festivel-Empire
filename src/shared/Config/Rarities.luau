@@ -1,9 +1,10 @@
 --!strict
 --[[
 	Config/Rarities
-	As 22 raridades, por ordem crescente. Cada família fecha exatamente nos totais
-	do CLAUDE.md: Comum 55% · Raro 28% · Épico 12% · Lendário 4.5% · Mítico+ 0.5%.
-	Weight está em percentagem; o servidor sorteia com estes pesos exatos.
+	As 22 raridades, por ordem crescente.
+	Weight (em %) é a referência global por família (Comum 55% · Raro 28% · Épico 12% ·
+	Lendário 4.5% · Mítico+ 0.5%). As crates JÁ NÃO sorteiam com estes pesos: cada crate
+	tem uma janela de 6 raridades com probabilidades por posição (Config/Artists.SlotOdds).
 ]]
 
 local Types = require(script.Parent.Parent.Types)

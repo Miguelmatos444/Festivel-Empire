@@ -17,6 +17,8 @@ type ArtistDef = Types.ArtistDef
 type AbilityDef = Types.AbilityDef
 type RarityDef = Types.RarityDef
 type CrateDef = Types.CrateDef
+type CrateOdd = Types.CrateOdd
+type PityLevel = Types.PityLevel
 type ArtistEffects = Types.ArtistEffects
 type SaveDropEffect = Types.SaveDropEffect
 
@@ -254,22 +256,96 @@ end
 
 -- Sorteio --------------------------------------------------------------------
 
--- Sorteia uma raridade com índice >= minIndex, com os pesos exatos da Config
-function ArtistCalc.RollRarity(rng: Random, minIndex: number): RarityDef
-	local list = RaritiesConfig.List
-	local first = math.clamp(minIndex, 1, #list)
+-- Índices (1ª e última) da janela de raridades que a crate pode dar
+function ArtistCalc.GetCrateWindow(crate: CrateDef): (number, number)
+	local first = RaritiesConfig.IndexById[crate.MinRarity] or 1
+	local last = math.min(first + #ArtistsConfig.SlotOdds - 1, RaritiesConfig.Count)
+	return first, last
+end
+
+-- Tabela de probabilidades da crate (a UI mostra exatamente o que o servidor sorteia)
+function ArtistCalc.GetCrateOdds(crate: CrateDef): { CrateOdd }
+	local first, last = ArtistCalc.GetCrateWindow(crate)
 	local total = 0
-	for index = first, #list do
-		total += list[index].Weight
+	for slot = 1, last - first + 1 do
+		total += ArtistsConfig.SlotOdds[slot]
 	end
-	local roll = rng:NextNumber() * total
-	for index = first, #list do
-		roll -= list[index].Weight
-		if roll < 0 then
-			return list[index]
+	local result: { CrateOdd } = {}
+	for slot = 1, last - first + 1 do
+		table.insert(result, {
+			Rarity = RaritiesConfig.List[first + slot - 1],
+			Chance = ArtistsConfig.SlotOdds[slot] / total,
+			Slot = slot,
+		})
+	end
+	return result
+end
+
+-- Posição da raridade na janela da crate (nil se a crate não a dá)
+function ArtistCalc.GetCrateSlot(crate: CrateDef, rarityId: string): number?
+	local index = RaritiesConfig.IndexById[rarityId]
+	local first, last = ArtistCalc.GetCrateWindow(crate)
+	if not index or index < first or index > last then
+		return nil
+	end
+	return index - first + 1
+end
+
+-- Artistas que a crate pode dar (igual probabilidade)
+function ArtistCalc.GetCrateArtists(crate: CrateDef): { ArtistDef }
+	return ArtistsConfig.ByCrate[crate.Id] or {}
+end
+
+-- Patamares de pity que contam nesta crate: só os que a crate pode dar sem ser a 1ª
+-- raridade da janela (se MinRarity <= 1ª raridade, qualquer abertura já os cumpre)
+function ArtistCalc.GetCratePityLevels(crate: CrateDef): { PityLevel }
+	local first, last = ArtistCalc.GetCrateWindow(crate)
+	local result: { PityLevel } = {}
+	for _, level in RaritiesConfig.PityLadder do
+		local index = RaritiesConfig.IndexById[level.MinRarity]
+		if index > first and index <= last then
+			table.insert(result, level)
 		end
 	end
-	return list[#list]
+	return result
+end
+
+-- Limiar do patamar ("Sorte de Estreia" adianta só o 1º patamar da escada)
+function ArtistCalc.GetPityThreshold(level: PityLevel, firstLevelReduction: number): number
+	if level.Key == RaritiesConfig.PityLadder[1].Key then
+		return math.max(1, level.Threshold - firstLevelReduction)
+	end
+	return level.Threshold
+end
+
+-- Sorteia uma raridade da janela da crate com índice >= minIndex (pity), com SlotOdds
+function ArtistCalc.RollCrateRarity(rng: Random, crate: CrateDef, minIndex: number): RarityDef
+	local odds = ArtistCalc.GetCrateOdds(crate)
+	local total = 0
+	for _, odd in odds do
+		if RaritiesConfig.IndexById[odd.Rarity.Id] >= minIndex then
+			total += odd.Chance
+		end
+	end
+	if total <= 0 then
+		return odds[#odds].Rarity
+	end
+	local roll = rng:NextNumber() * total
+	for _, odd in odds do
+		if RaritiesConfig.IndexById[odd.Rarity.Id] >= minIndex then
+			roll -= odd.Chance
+			if roll < 0 then
+				return odd.Rarity
+			end
+		end
+	end
+	return odds[#odds].Rarity
+end
+
+-- Sorteia um dos artistas da crate (igual probabilidade)
+function ArtistCalc.RollCrateArtist(rng: Random, crate: CrateDef): ArtistDef
+	local artists = ArtistCalc.GetCrateArtists(crate)
+	return artists[rng:NextInteger(1, #artists)]
 end
 
 -- Fusão ----------------------------------------------------------------------

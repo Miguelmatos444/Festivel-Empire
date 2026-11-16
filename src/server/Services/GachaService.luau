@@ -3,10 +3,11 @@
 	GachaService
 	Abertura de Vinyl Crates — tudo no servidor:
 	  1) valida crate, tier do palco, quantidade (1 ou 10), espaço na coleção e Hype
-	  2) por cada abertura: escada de pity -> raridade mínima; sorteio com os pesos exatos
-	     de Config/Rarities (Random do servidor); artista = o da família dessa raridade na crate
+	  2) por cada abertura: escada de pity (só os patamares que a crate pode dar) ->
+	     raridade mínima; sorteio na janela de 6 raridades da crate com
+	     Config/Artists.SlotOdds (Random do servidor); artista = um dos 5 da crate ao acaso
 	  3) Auto-Delete (raridades até ao limite escolhido) e Auto-Fuse
-	  4) envia CrateResult ao jogador e anuncia a todos as raridades de Divino para cima
+	  4) envia CrateResult ao jogador e anuncia a todos as 2 raridades mais raras da crate
 	Também cria os ProximityPrompts nas estações de Vinyl Crates da praça.
 ]]
 
@@ -36,7 +37,6 @@ type CrateItem = Types.CrateItem
 type CrateResult = Types.CrateResult
 type ProfileData = Types.ProfileData
 
-local ANNOUNCE_FROM_RARITY = "Divine"
 local PROMPT_NAME = "CrateStationPrompt"
 
 local GachaService = {}
@@ -54,26 +54,27 @@ local function notify(player: Player, text: string)
 end
 
 -- Uma abertura: atualiza a escada de pity e devolve a raridade sorteada
+-- Só contam (e só forçam) os patamares que esta crate pode dar; obter uma raridade
+-- reinicia todos os patamares que ela cumpre, venha de que crate vier.
 -- legendaryReduction: "Sorte de Estreia" adianta o primeiro patamar (Lendário+)
-local function rollWithPity(data: ProfileData, legendaryReduction: number): RarityDef
+local function rollWithPity(data: ProfileData, crate: Types.CrateDef, legendaryReduction: number): RarityDef
 	local counters = (data.Pity :: unknown) :: { [string]: number }
-	local ladder = RaritiesConfig.PityLadder
+	local levels = ArtistCalc.GetCratePityLevels(crate)
 
-	for _, level in ladder do
+	for _, level in levels do
 		counters[level.Key] = (counters[level.Key] or 0) + 1
 	end
 
 	local minIndex = 1
-	for index, level in ladder do
-		local threshold = if index == 1 then math.max(1, level.Threshold - legendaryReduction) else level.Threshold
-		if counters[level.Key] >= threshold then
+	for _, level in levels do
+		if counters[level.Key] >= ArtistCalc.GetPityThreshold(level, legendaryReduction) then
 			minIndex = math.max(minIndex, RaritiesConfig.IndexById[level.MinRarity])
 		end
 	end
 
-	local rarity = ArtistCalc.RollRarity(rng, minIndex)
+	local rarity = ArtistCalc.RollCrateRarity(rng, crate, minIndex)
 	local rolledIndex = RaritiesConfig.IndexById[rarity.Id]
-	for _, level in ladder do
+	for _, level in RaritiesConfig.PityLadder do
 		if rolledIndex >= RaritiesConfig.IndexById[level.MinRarity] then
 			counters[level.Key] = 0
 		end
@@ -122,10 +123,9 @@ function GachaService.Pull(player: Player, crate: Types.CrateDef, count: number)
 	end
 	local skills = PrestigeCalc.GetSkillEffects(data.SkillTree)
 	local items: { CrateItem } = {}
-	local announceIndex = RaritiesConfig.IndexById[ANNOUNCE_FROM_RARITY]
 	for _ = 1, count do
-		local rarity = rollWithPity(data, skills.PityReduction)
-		local artist = ArtistsConfig.ByCrateFamily[crate.Id .. "|" .. rarity.Family]
+		local rarity = rollWithPity(data, crate, skills.PityReduction)
+		local artist = ArtistCalc.RollCrateArtist(rng, crate)
 		local item: CrateItem
 		if ArtistService.IsAutoDeleted(player, rarity.Id) then
 			item = { ArtistId = artist.Id, Rarity = rarity.Id, Uid = nil, Outcome = "Deleted" }
@@ -134,7 +134,8 @@ function GachaService.Pull(player: Player, crate: Types.CrateDef, count: number)
 			item = { ArtistId = artist.Id, Rarity = rarity.Id, Uid = uid, Outcome = "New" }
 		end
 		table.insert(items, item)
-		if RaritiesConfig.IndexById[rarity.Id] >= announceIndex then
+		local slot = ArtistCalc.GetCrateSlot(crate, rarity.Id)
+		if slot and slot >= ArtistsConfig.AnnounceFromSlot then
 			announce(player, artist.Name, rarity)
 		end
 	end

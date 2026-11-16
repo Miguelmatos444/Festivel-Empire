@@ -2,13 +2,15 @@
 --[[
 	ArtistsView
 	Painel central "ARTISTAS" com dois separadores:
-	  CRATES   — as 5 Vinyl Crates (cadeado por tier), abertura x1/x10, pity atual e
-	             revelação animada dos resultados com a cor de cada raridade
+	  CRATES   — as 5 Vinyl Crates (cadeado por tier), abertura x1/x10, pity atual,
+	             botão "%" com as probabilidades de cada crate (ArtistCalc.GetCrateOdds)
+	             e revelação animada dos resultados com a cor de cada raridade
 	  COLEÇÃO  — grelha de artistas (equipados primeiro, raridade mais alta primeiro),
 	             detalhe com bónus e habilidades, equipar/desequipar, cadeado, fundir,
 	             Fundir tudo, Auto-Fuse e Auto-Delete ("apagar até…")
 	Abre com o botão "ARTISTAS" (canto superior direito), tecla K, D-pad ↑ do comando,
-	ou pelos prompts das estações de Vinyl Crates na praça.
+	pelos prompts das estações de Vinyl Crates na praça, ou ao pisar a Zona das Crates
+	no centro (fecha ao sair, se foi a zona a abri-lo e ainda estiver em CRATES).
 ]]
 
 local Players = game:GetService("Players")
@@ -30,6 +32,7 @@ local PrestigeCalc = require(ReplicatedStorage.Shared.Calc.PrestigeCalc)
 local Client = script.Parent.Parent.Parent
 local StateController = require(Client.Controllers.StateController)
 local ArtistController = require(Client.Controllers.ArtistController)
+local CrateZoneController = require(Client.Controllers.CrateZoneController)
 local Theme = require(script.Parent.Parent.Theme)
 local Components = require(script.Parent.Parent.Components)
 local ModalManager = require(script.Parent.Parent.ModalManager)
@@ -38,6 +41,7 @@ local SideMenu = require(script.Parent.Parent.SideMenu)
 type ArtistData = Types.ArtistData
 type ArtistsSync = Types.ArtistsSync
 type CrateDef = Types.CrateDef
+type CrateOdd = Types.CrateOdd
 type CrateResult = Types.CrateResult
 type RarityDef = Types.RarityDef
 type Snapshot = Types.PlayerStateSnapshot
@@ -50,6 +54,7 @@ type CrateCard = {
 	One: TextButton,
 	Ten: TextButton,
 	Lock: TextLabel,
+	Odds: TextButton,
 }
 
 local PANEL_SIZE = Vector2.new(740, 640)
@@ -175,6 +180,19 @@ local function effectsSummary(sync: ArtistsSync): string
 		table.insert(parts, "Salva-Drop ×" .. #effects.SaveDrops)
 	end
 	return table.concat(parts, "  ·  ")
+end
+
+local function formatChance(chance: number): string
+	local value = chance * 100
+	if math.abs(value - math.floor(value + 0.5)) < 1e-6 then
+		return string.format("%d%%", math.floor(value + 0.5))
+	end
+	return string.format("%.2f%%", value)
+end
+
+local function windowLabel(crate: CrateDef): string
+	local first, last = ArtistCalc.GetCrateWindow(crate)
+	return RaritiesConfig.List[first].Name .. " → " .. RaritiesConfig.List[last].Name
 end
 
 local function autoDeleteLabel(upTo: number): string
@@ -330,6 +348,140 @@ function ArtistsView.Mount()
 	cratePadding.PaddingRight = UDim.new(0, 10)
 	cratePadding.Parent = crateList
 
+	-- Probabilidades de uma crate (janela por cima da lista)
+	local odds = Instance.new("Frame")
+	odds.Name = "Odds"
+	odds.Size = UDim2.fromScale(1, 1)
+	odds.BackgroundColor3 = Theme.Colors.Background
+	odds.BackgroundTransparency = 0.03
+	odds.BorderSizePixel = 0
+	odds.Visible = false
+	odds.ZIndex = 30
+	odds.Active = true
+	Components.addCorner(odds, UDim.new(0, 16))
+	odds.Parent = cratesPage
+
+	local oddsTitle = Components.makeLabel("Title", Theme.Fonts.Display, Theme.Colors.Gold, 26)
+	oddsTitle.Position = UDim2.fromOffset(20, 8)
+	oddsTitle.Size = UDim2.new(1, -40, 0, 30)
+	oddsTitle.ZIndex = 31
+	oddsTitle.Parent = odds
+
+	local oddsList = Components.makeFrame("Rows")
+	oddsList.Position = UDim2.fromOffset(40, 46)
+	oddsList.Size = UDim2.new(1, -80, 0, 6 * 44)
+	oddsList.ZIndex = 31
+	oddsList.Parent = odds
+	local oddsLayout = Instance.new("UIListLayout")
+	oddsLayout.Padding = UDim.new(0, 6)
+	oddsLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	oddsLayout.Parent = oddsList
+
+	local oddsArtists = Components.makeLabel("Artists", Theme.Fonts.Body, Theme.Colors.Text, 15)
+	oddsArtists.Position = UDim2.new(0, 40, 0, 46 + 6 * 44 + 8)
+	oddsArtists.Size = UDim2.new(1, -80, 0, 40)
+	oddsArtists.TextWrapped = true
+	oddsArtists.TextXAlignment = Enum.TextXAlignment.Left
+	oddsArtists.TextYAlignment = Enum.TextYAlignment.Top
+	oddsArtists.ZIndex = 31
+	oddsArtists.Parent = odds
+
+	local oddsPity = Components.makeLabel("Pity", Theme.Fonts.Body, Theme.Colors.TextMuted, 15)
+	oddsPity.Position = UDim2.new(0, 40, 0, 46 + 6 * 44 + 52)
+	oddsPity.Size = UDim2.new(1, -80, 0, 22)
+	oddsPity.TextXAlignment = Enum.TextXAlignment.Left
+	oddsPity.ZIndex = 31
+	oddsPity.Parent = odds
+
+	local oddsClose = textButton("Close", "FECHAR", Theme.Colors.Accent, UDim2.fromOffset(220, 48))
+	oddsClose.AnchorPoint = Vector2.new(0.5, 1)
+	oddsClose.Position = UDim2.new(0.5, 0, 1, -12)
+	oddsClose.ZIndex = 31
+	oddsClose.Parent = odds
+
+	local oddsCrate: CrateDef? = nil
+
+	local function renderOdds()
+		local crate = oddsCrate
+		if not crate then
+			return
+		end
+		oddsTitle.Text = "Probabilidades · " .. crate.Name
+		for _, child in oddsList:GetChildren() do
+			if child:IsA("GuiObject") then
+				child:Destroy()
+			end
+		end
+		for _, odd: CrateOdd in ArtistCalc.GetCrateOdds(crate) do
+			local row = Instance.new("Frame")
+			row.Name = odd.Rarity.Id
+			row.LayoutOrder = odd.Slot
+			row.Size = UDim2.new(1, 0, 0, 38)
+			row.BorderSizePixel = 0
+			row.ZIndex = 32
+			Components.addCorner(row, UDim.new(0, 10))
+			applyRarityStyle(row, odd.Rarity)
+			row.Parent = oddsList
+
+			local name = Components.makeLabel("Name", Theme.Fonts.Display, Theme.Colors.Text, 20)
+			name.Position = UDim2.fromOffset(14, 0)
+			name.Size = UDim2.new(0.7, -14, 1, 0)
+			name.TextXAlignment = Enum.TextXAlignment.Left
+			name.ZIndex = 33
+			name.Text = odd.Rarity.Name
+			Components.addStroke(name, Theme.Colors.Background, 2)
+			name.Parent = row
+
+			local chance = Components.makeLabel("Chance", Theme.Fonts.Display, Theme.Colors.Text, 20)
+			chance.AnchorPoint = Vector2.new(1, 0)
+			chance.Position = UDim2.new(1, -14, 0, 0)
+			chance.Size = UDim2.new(0.3, 0, 1, 0)
+			chance.TextXAlignment = Enum.TextXAlignment.Right
+			chance.ZIndex = 33
+			chance.Text = formatChance(odd.Chance)
+			Components.addStroke(chance, Theme.Colors.Background, 2)
+			chance.Parent = row
+		end
+
+		local artists = ArtistCalc.GetCrateArtists(crate)
+		local names: { string } = {}
+		for _, def in artists do
+			table.insert(names, def.Name)
+		end
+		oddsArtists.Text = string.format(
+			"Artistas (%s cada): %s",
+			formatChance(if #artists > 0 then 1 / #artists else 0),
+			table.concat(names, ", ")
+		)
+
+		local levels = ArtistCalc.GetCratePityLevels(crate)
+		if #levels == 0 then
+			oddsPity.Text = "Pity: nenhum patamar conta nesta crate."
+		else
+			local snapshot = StateController.Get()
+			local sync = ArtistController.Get()
+			local skills = PrestigeCalc.GetSkillEffects(if snapshot then snapshot.SkillTree else {})
+			local counters: { [string]: number } = if sync then (sync.Pity :: unknown) :: { [string]: number } else {}
+			local parts: { string } = {}
+			for _, level in levels do
+				local threshold = ArtistCalc.GetPityThreshold(level, skills.PityReduction)
+				table.insert(parts, string.format("%s %d/%d", level.Label, counters[level.Key] or 0, threshold))
+			end
+			oddsPity.Text = "Pity nesta crate: " .. table.concat(parts, "  ·  ")
+		end
+	end
+
+	local function openOdds(crate: CrateDef)
+		oddsCrate = crate
+		renderOdds()
+		odds.Visible = true
+	end
+
+	trove:Connect(oddsClose.Activated, function()
+		oddsCrate = nil
+		odds.Visible = false
+	end)
+
 	local crateCards: { CrateCard } = {}
 	for index, crate in ArtistsConfig.Crates do
 		local card = Instance.new("Frame")
@@ -344,14 +496,15 @@ function ArtistsView.Mount()
 
 		local title = Components.makeLabel("Title", Theme.Fonts.Display, Theme.Colors.Gold, 22)
 		title.Position = UDim2.fromOffset(16, 10)
-		title.Size = UDim2.new(1, -300, 0, 26)
+		title.Size = UDim2.new(1, -350, 0, 26)
 		title.TextXAlignment = Enum.TextXAlignment.Left
 		title.Text = crate.Name
+		title.TextColor3 = crate.Color
 		title.Parent = card
 
 		local info = Components.makeLabel("Info", Theme.Fonts.Body, Theme.Colors.TextMuted, 15)
 		info.Position = UDim2.fromOffset(16, 40)
-		info.Size = UDim2.new(1, -300, 0, 40)
+		info.Size = UDim2.new(1, -350, 0, 40)
 		info.TextWrapped = true
 		info.TextXAlignment = Enum.TextXAlignment.Left
 		info.TextYAlignment = Enum.TextYAlignment.Top
@@ -374,7 +527,15 @@ function ArtistsView.Mount()
 		lock.Visible = false
 		lock.Parent = card
 
-		local entry: CrateCard = { Def = crate, Info = info, One = one, Ten = ten, Lock = lock }
+		local oddsButton = textButton("Odds", "%", Theme.Colors.Accent, UDim2.fromOffset(48, 48))
+		oddsButton.AnchorPoint = Vector2.new(1, 0.5)
+		oddsButton.Position = UDim2.new(1, -288, 0.5, 0)
+		oddsButton.Parent = card
+		trove:Connect(oddsButton.Activated, function()
+			openOdds(crate)
+		end)
+
+		local entry: CrateCard = { Def = crate, Info = info, One = one, Ten = ten, Lock = lock, Odds = oddsButton }
 		table.insert(crateCards, entry)
 
 		for _, pair in { { one, 1 }, { ten, 10 } } do
@@ -652,6 +813,7 @@ function ArtistsView.Mount()
 
 	-- Estado / desenho ---------------------------------------------------------
 	local currentTab: Tab = "Crates"
+	local openedByZone = false -- o painel atual foi aberto pela Zona das Crates
 	local selectedUid: string? = nil
 	local collectionDirty = true
 
@@ -662,11 +824,14 @@ function ArtistsView.Mount()
 		if sync then
 			local counters = (sync.Pity :: unknown) :: { [string]: number }
 			local parts: { string } = {}
-			for index, level in RaritiesConfig.PityLadder do
-				local threshold = if index == 1 then math.max(1, level.Threshold - skills.PityReduction) else level.Threshold
+			for _, level in RaritiesConfig.PityLadder do
+				local threshold = ArtistCalc.GetPityThreshold(level, skills.PityReduction)
 				table.insert(parts, string.format("%s %d/%d", level.Label, counters[level.Key] or 0, threshold))
 			end
 			pityLabel.Text = "Pity — " .. table.concat(parts, "  ·  ")
+		end
+		if odds.Visible then
+			renderOdds()
 		end
 		local budget = if snapshot then BigNum.deserialize(snapshot.Hype) else BigNum.ZERO
 		local tier = if snapshot then snapshot.StageTier else 1
@@ -680,10 +845,10 @@ function ArtistsView.Mount()
 			if unlocked then
 				local unitCost = crate.Cost * costFactor
 				card.Info.Text = string.format(
-					"%s por abertura · bónus da era ×%d · desbloqueada no Tier %d",
+					"%s · %s por abertura · bónus da era ×%d",
+					windowLabel(crate),
 					NumberFormatter.format(unitCost),
-					crate.EraFactor,
-					crate.RequiredTier
+					crate.EraFactor
 				)
 				card.One.Text = "x1  " .. NumberFormatter.format(unitCost)
 				card.Ten.Text = "x10  " .. NumberFormatter.format(unitCost * 10)
@@ -694,7 +859,7 @@ function ArtistsView.Mount()
 					then Theme.Colors.Success
 					else Theme.Colors.Disabled
 			else
-				card.Info.Text = string.format("Bónus da era ×%d", crate.EraFactor)
+				card.Info.Text = string.format("%s · bónus da era ×%d", windowLabel(crate), crate.EraFactor)
 				card.Lock.Text = string.format("🔒 Tier %d · %s", crate.RequiredTier, StageCalc.GetDef(crate.RequiredTier).Name)
 			end
 		end
@@ -969,6 +1134,7 @@ function ArtistsView.Mount()
 			TweenService:Create(overlay, Theme.Tween.Fast, { BackgroundTransparency = Theme.Shop.OverlayTransparency }):Play()
 			setTab(currentTab)
 		else
+			openedByZone = false
 			local closing = TweenService:Create(popScale, Theme.Tween.FadeOut, { Scale = 0.85 })
 			TweenService:Create(overlay, Theme.Tween.FadeOut, { BackgroundTransparency = 1 }):Play()
 			closing.Completed:Once(function()
@@ -1017,6 +1183,22 @@ function ArtistsView.Mount()
 		end
 	end)
 
+	-- Zona das Crates: abre ao entrar; fecha ao sair só se foi a zona a abrir e ainda
+	-- estiver em CRATES. Fechar à mão dentro da zona não reabre até sair e voltar.
+	trove:Add(CrateZoneController.Entered:Connect(function()
+		if not isOpen then
+			setTab("Crates")
+			setOpen(true)
+			openedByZone = true
+		end
+	end))
+	trove:Add(CrateZoneController.Exited:Connect(function()
+		if openedByZone and isOpen and currentTab == "Crates" then
+			setOpen(false)
+		end
+		openedByZone = false
+	end))
+
 	trove:Add(ArtistController.Changed:Connect(function(_sync: ArtistsSync)
 		refreshCollection()
 		if isOpen and currentTab == "Crates" then
@@ -1028,6 +1210,8 @@ function ArtistsView.Mount()
 			setTab("Crates")
 			setOpen(true)
 		end
+		oddsCrate = nil
+		odds.Visible = false
 		showReveal(result)
 	end))
 	trove:Add(StateController.Changed:Connect(function(_snapshot: Snapshot)
