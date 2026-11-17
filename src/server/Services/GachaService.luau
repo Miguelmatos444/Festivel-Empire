@@ -130,7 +130,8 @@ local function handleMystery(
 	crate: Types.CrateDef,
 	items: { CrateItem },
 	cinematicOnly: boolean,
-	preview: boolean
+	preview: boolean,
+	auto: boolean
 ): (boolean, number?)
 	for _, item in items do
 		item.Mystery = CrateAnimCalc.IsMystery(crate, item.Rarity)
@@ -146,7 +147,8 @@ local function handleMystery(
 		data.Stats.CinematicsSeen = seen + 1
 	end
 
-	local fast = data ~= nil and data.Settings.FastCrateAnim
+	-- O Auto-Abrir usa sempre a animação rápida
+	local fast = auto or (data ~= nil and data.Settings.FastCrateAnim)
 	local phases = CrateAnimCalc.GetPhases(fast)
 	local delay = CrateAnimCalc.GetCinematicDelay(#items, fast, cinematicOnly)
 	local revealAt = delay + (CrateAnimCalc.GetPhaseStart(phases, "Reveal") or 0)
@@ -173,38 +175,40 @@ local function handleMystery(
 	return canSkip, revealAt
 end
 
-function GachaService.Open(player: Player, crateId: string, count: number): (boolean, string?)
+-- Abertura paga (manual ou Auto-Abrir: as mesmas validações). Devolve (ok, mensagem, resultados).
+function GachaService.Open(player: Player, crateId: string, count: number, auto: boolean?): (boolean, string?, { CrateItem }?)
 	local data = DataService.GetProfile(player)
 	local crate = ArtistCalc.GetCrate(crateId)
 	if not data or not crate then
-		return false, "Crate indisponível."
+		return false, "Crate indisponível.", nil
 	end
 	if not table.find(ArtistsConfig.OpenCounts, count) then
-		return false, "Quantidade inválida."
+		return false, "Quantidade inválida.", nil
 	end
 	if data.StageTier < crate.RequiredTier then
-		return false, string.format("%s requer o Tier %d (%s).", crate.Name, crate.RequiredTier, StageCalc.GetDef(crate.RequiredTier).Name)
+		return false, string.format("%s requer o Tier %d (%s).", crate.Name, crate.RequiredTier, StageCalc.GetDef(crate.RequiredTier).Name), nil
 	end
 	local free = ArtistsConfig.InventoryCap - ArtistService.GetCount(player)
 	if free < count then
-		return false, string.format("Coleção cheia (%d/%d). Funde ou ativa o Auto-Delete.", ArtistsConfig.InventoryCap - free, ArtistsConfig.InventoryCap)
+		return false, string.format("Coleção cheia (%d/%d). Funde ou ativa o Auto-Delete.", ArtistsConfig.InventoryCap - free, ArtistsConfig.InventoryCap), nil
 	end
 	local skills = PrestigeCalc.GetSkillEffects(data.SkillTree)
 	local cost = BigNum.fromNumber(crate.Cost * count * (1 - math.clamp(skills.CrateCostCut, 0, 0.9)))
 	if not EconomyService.TrySpendHype(player, cost) then
-		return false, "Hype insuficiente (" .. NumberFormatter.format(cost) .. ")."
+		return false, "Hype insuficiente (" .. NumberFormatter.format(cost) .. ").", nil
 	end
 
-	GachaService.Pull(player, crate, count)
-	return true, nil
+	return true, nil, GachaService.Pull(player, crate, count, auto)
 end
 
--- Abre `count` crates já validadas/pagas: pity, sorteio, Auto-Delete/Fuse, resultado e sinais
-function GachaService.Pull(player: Player, crate: Types.CrateDef, count: number)
+-- Abre `count` crates já validadas/pagas: pity, sorteio, Auto-Delete/Fuse, resultado e sinais.
+-- `auto`: aberto pelo Auto-Abrir (animação rápida). Devolve os resultados.
+function GachaService.Pull(player: Player, crate: Types.CrateDef, count: number, auto: boolean?): { CrateItem }
 	local data = DataService.GetProfile(player)
 	if not data or count <= 0 then
-		return
+		return {}
 	end
+	local isAuto = auto == true
 	local skills = PrestigeCalc.GetSkillEffects(data.SkillTree)
 	local items: { CrateItem } = {}
 	for _ = 1, count do
@@ -247,10 +251,10 @@ function GachaService.Pull(player: Player, crate: Types.CrateDef, count: number)
 	-- Entrega já feita (perfil + coleção) ANTES de o cliente animar: fechar a UI ou sair
 	-- a meio nunca faz perder o artista.
 	ArtistService.Commit(player)
-	local canSkip = handleMystery(player, data, crate, items, false, false)
+	local canSkip = handleMystery(player, data, crate, items, false, false, isAuto)
 
 	-- Anúncio normal (2 raridades mais raras da crate), depois da roleta/grelha parar
-	local announceDelay = CrateAnimCalc.GetCinematicDelay(count, data.Settings.FastCrateAnim, false) - CrateAnimConfig.MysteryPause
+	local announceDelay = CrateAnimCalc.GetCinematicDelay(count, isAuto or data.Settings.FastCrateAnim, false) - CrateAnimConfig.MysteryPause
 	for _, item in items do
 		local slot = ArtistCalc.GetCrateSlot(crate, item.Rarity)
 		local rarity = RaritiesConfig.ById[item.Rarity]
@@ -265,10 +269,11 @@ function GachaService.Pull(player: Player, crate: Types.CrateDef, count: number)
 		end
 	end
 
-	local result: CrateResult = { CrateId = crate.Id, Items = items, CanSkip = canSkip }
+	local result: CrateResult = { CrateId = crate.Id, Items = items, CanSkip = canSkip, Auto = if isAuto then true else nil }
 	ServerNet.FireClient(RemoteDefs.Defs.CrateResult, player, result)
 	cratesOpened:Fire(player, count, items)
-	Diag.Log("Gacha", string.format("%s abriu %dx %s", player.Name, count, crate.Id))
+	Diag.Log("Gacha", string.format("%s abriu %dx %s%s", player.Name, count, crate.Id, if isAuto then " (auto)" else ""))
+	return items
 end
 
 -- Crate que melhor mostra uma raridade: a que a tem como mistério, senão a primeira que a dá
@@ -310,7 +315,7 @@ function GachaService.Preview(player: Player, rarityId: string, count: number, c
 		New = true,
 	})
 	local data = DataService.GetProfile(player)
-	local canSkip = handleMystery(player, data, crate, items, cinematicOnly, true)
+	local canSkip = handleMystery(player, data, crate, items, cinematicOnly, true, false)
 	local result: CrateResult = {
 		CrateId = crate.Id,
 		Items = items,

@@ -10,12 +10,13 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Types = require(ReplicatedStorage.Shared.Types)
 local BigNum = require(ReplicatedStorage.Shared.Util.BigNum)
 local EconomyConfig = require(ReplicatedStorage.Shared.Config.Economy)
+local MonetizationConfig = require(ReplicatedStorage.Shared.Config.Monetization)
 
 type RawData = { [string]: unknown }
 
 local ProfileTemplate = {}
 
-ProfileTemplate.Version = 5
+ProfileTemplate.Version = 6
 
 function ProfileTemplate.Create(): Types.ProfileData
 	return {
@@ -62,6 +63,12 @@ function ProfileTemplate.Create(): Types.ProfileData
 			AutoDeleteVariants = false,
 			AutoFuse = false,
 			AutoDeleteUpTo = 0,
+			AutoOpen = {
+				Count = 1,
+				StopSlot = MonetizationConfig.AutoOpen.DefaultStopSlot,
+				StopNew = true,
+				StopShiny = true,
+			},
 		},
 		-- Faíscas Frias desbloqueadas desde o início; perfis antigos recebem-nas via Reconcile
 		Pyro = {

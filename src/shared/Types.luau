@@ -76,7 +76,26 @@ export type StatsData = {
 	CinematicsSeen: number, -- cinemáticas de ultra-raro vistas ("Saltar" a partir da 2.ª)
 }
 
+-- Condições do Auto-Abrir (Fase 13C), guardadas no perfil
+export type AutoOpenSettings = {
+	Count: number, -- 1 ou 10
+	StopSlot: number, -- pára numa raridade nesta posição da janela da crate ou acima (1..6; 0 = nunca)
+	StopNew: boolean, -- pára num artista NOVO no Índice
+	StopShiny: boolean, -- pára numa variante Brilhante
+}
+
+-- Estado do Auto-Abrir enviado ao próprio jogador
+export type AutoOpenState = {
+	Running: boolean,
+	CrateId: string,
+	Count: number,
+	Opened: number, -- aberturas feitas neste arranque
+	Best: string, -- RarityId da melhor raridade ("" = nenhuma)
+	Reason: string?, -- motivo da paragem (quando Running = false)
+}
+
 export type SettingsData = {
+	AutoOpen: AutoOpenSettings,
 	MusicVolume: number,
 	SfxVolume: number,
 	LowVfx: boolean,
@@ -448,6 +467,7 @@ export type CrateResult = {
 	CanSkip: boolean?, -- "Saltar" disponível na cinemática (decidido pelo servidor)
 	Preview: boolean?, -- pré-visualização de debug: nada foi gasto nem entregue
 	CinematicOnly: boolean?, -- debug "/fe cinematic": salta a roleta
+	Auto: boolean?, -- aberto pelo Auto-Abrir (animação rápida, pausa curta entre resultados)
 }
 
 -- Broadcast a todos quando alguém tira uma carta mistério (versão leve da cinemática)
@@ -506,6 +526,7 @@ export type PlayerStateSnapshot = {
 	LowVfx: boolean,
 	FastCrateAnim: boolean,
 	Crystals: number,
+	AutoOpen: AutoOpenSettings,
 }
 
 export type StateDelta = {
@@ -523,6 +544,7 @@ export type StateDelta = {
 	LowVfx: boolean?,
 	FastCrateAnim: boolean?,
 	Crystals: number?,
+	AutoOpen: AutoOpenSettings?,
 }
 
 -- Prestige / World Tour --------------------------------------------------------

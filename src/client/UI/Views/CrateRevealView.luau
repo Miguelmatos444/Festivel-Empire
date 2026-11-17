@@ -22,6 +22,7 @@ local TweenService = game:GetService("TweenService")
 local Types = require(ReplicatedStorage.Shared.Types)
 local CrateAnimConfig = require(ReplicatedStorage.Shared.Config.CrateAnimation)
 local RaritiesConfig = require(ReplicatedStorage.Shared.Config.Rarities)
+local MonetizationConfig = require(ReplicatedStorage.Shared.Config.Monetization)
 local ArtistCalc = require(ReplicatedStorage.Shared.Calc.ArtistCalc)
 local CrateAnimCalc = require(ReplicatedStorage.Shared.Calc.CrateAnimCalc)
 local VariantCalc = require(ReplicatedStorage.Shared.Calc.VariantCalc)
@@ -1029,7 +1030,7 @@ function CrateRevealView.Mount()
 		TweenService:Create(resultScale, TweenInfo.new(0.45, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
 		resultPanel.Visible = true
 		buttons.Visible = true
-		againButton.Visible = not result.Preview
+		againButton.Visible = not result.Preview and not result.Auto
 		againButton.Text = "ABRIR DE NOVO x" .. #result.Items
 	end
 
@@ -1040,7 +1041,8 @@ function CrateRevealView.Mount()
 		showResult(result)
 		busy = false
 		if CrateAnimController.HasQueued() then
-			later(token, 0.8, playNext)
+			-- Auto-Abrir: pausa curta para acompanhar o ritmo do servidor
+			later(token, if result.Auto then MonetizationConfig.AutoOpen.ClientPause else 0.8, playNext)
 		end
 	end
 

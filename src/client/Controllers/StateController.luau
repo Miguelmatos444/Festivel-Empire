@@ -89,6 +89,10 @@ local function applyDelta(delta: StateDelta)
 	if crystals ~= nil then
 		nextState.Crystals = crystals
 	end
+	local autoOpen = delta.AutoOpen
+	if autoOpen then
+		nextState.AutoOpen = autoOpen
+	end
 	local equipmentDelta = delta.Equipment
 	if equipmentDelta then
 		local merged = table.clone(current.Equipment)

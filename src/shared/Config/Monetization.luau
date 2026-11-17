@@ -13,6 +13,10 @@ local ArtistsConfig = require(script.Parent.Artists)
 type GamepassDef = Types.GamepassDef
 type ProductDef = Types.ProductDef
 
+-- Gamepass "Auto-Abrir" (Fase 13C). 0 = funcionalidade desligada (botão AUTO escondido);
+-- em Studio simula-se com /fe autoopen on
+local AUTO_OPEN_GAMEPASS_ID = 0
+
 local Gamepasses: { GamepassDef } = {
 	{
 		Key = "VipStage",
@@ -31,6 +35,12 @@ local Gamepasses: { GamepassDef } = {
 		Name = "Hype ×2",
 		Description = "Todo o teu Hype a dobrar, para sempre.",
 		Id = 0,
+	},
+	{
+		Key = "AutoOpen",
+		Name = "Auto-Abrir",
+		Description = "Abre crates seguidas com a animação rápida e pára quando sai o que escolheres.",
+		Id = AUTO_OPEN_GAMEPASS_ID,
 	},
 	{
 		Key = "TourAgent",
@@ -72,4 +82,15 @@ return table.freeze({
 	DoubleHypeMultiplier = 2,
 	TourAgentDiscBonus = 0.25,
 	MaxStoredReceipts = 100,
+
+	-- Auto-Abrir (Fase 13C): o ritmo é do servidor; cada abertura passa pelas mesmas
+	-- validações de uma abertura manual e usa sempre a animação rápida
+	AutoOpenGamepassId = AUTO_OPEN_GAMEPASS_ID,
+	AutoOpen = table.freeze({
+		Interval = table.freeze({ [1] = 1.8, [10] = 3.5 }) :: { [number]: number }, -- s mínimos entre aberturas
+		MaxOpens = 500, -- aberturas por arranque (depois pára; volta a carregar para continuar)
+		DefaultStopSlot = 5, -- pára nas 2 raridades mais raras da crate (posições 5 e 6 da janela)
+		ClientPause = 0.25, -- s de pausa no cliente entre resultados do Auto-Abrir
+		ReasonTime = 5, -- s que o motivo da paragem fica na barra
+	}),
 })

@@ -71,6 +71,7 @@ local function buildSnapshot(player: Player, data: ProfileData): Snapshot
 		LowVfx = data.Settings.LowVfx,
 		FastCrateAnim = data.Settings.FastCrateAnim,
 		Crystals = data.Crystals,
+		AutoOpen = table.clone(data.Settings.AutoOpen),
 	}
 end
 
@@ -131,6 +132,16 @@ local function buildDelta(previous: Snapshot, current: Snapshot): (StateDelta, b
 	end
 	if previous.Crystals ~= current.Crystals then
 		delta.Crystals = current.Crystals
+		changed = true
+	end
+	local oldRules, newRules = previous.AutoOpen, current.AutoOpen
+	if
+		oldRules.Count ~= newRules.Count
+		or oldRules.StopSlot ~= newRules.StopSlot
+		or oldRules.StopNew ~= newRules.StopNew
+		or oldRules.StopShiny ~= newRules.StopShiny
+	then
+		delta.AutoOpen = newRules
 		changed = true
 	end
 

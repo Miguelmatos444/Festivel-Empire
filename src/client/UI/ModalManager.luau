@@ -10,6 +10,19 @@ local ModalManager = {}
 
 local closers: { [string]: () -> () } = {}
 local active: string? = nil
+local listeners: { (name: string) -> () } = {}
+
+-- Chamado sempre que um painel abre (ex.: o Auto-Abrir pára ao abrir outra UI).
+-- Devolve a função para deixar de ouvir.
+function ModalManager.Listen(callback: (name: string) -> ()): () -> ()
+	table.insert(listeners, callback)
+	return function()
+		local index = table.find(listeners, callback)
+		if index then
+			table.remove(listeners, index)
+		end
+	end
+end
 
 function ModalManager.Register(name: string, close: () -> ())
 	closers[name] = close
@@ -31,6 +44,9 @@ function ModalManager.NotifyOpened(name: string)
 		end
 	end
 	active = name
+	for _, listener in table.clone(listeners) do
+		task.spawn(listener, name)
+	end
 end
 
 -- Chamar quando um painel fecha (opcional para Views antigas)

@@ -38,6 +38,8 @@ local VariantCalc = require(ReplicatedStorage.Shared.Calc.VariantCalc)
 local TraitCalc = require(ReplicatedStorage.Shared.Calc.TraitCalc)
 local VariantsConfig = require(ReplicatedStorage.Shared.Config.Variants)
 local IndexController = require(Client.Controllers.IndexController)
+local AutoOpenController = require(Client.Controllers.AutoOpenController)
+local AutoOpenView = require(script.Parent.AutoOpenView)
 local Theme = require(script.Parent.Parent.Theme)
 local Components = require(script.Parent.Parent.Components)
 local ModalManager = require(script.Parent.Parent.ModalManager)
@@ -60,6 +62,7 @@ type CrateCard = {
 	Ten: TextButton,
 	Lock: TextLabel,
 	Odds: TextButton,
+	Auto: TextButton, -- Auto-Abrir (só com o Gamepass)
 }
 
 local PANEL_SIZE = Vector2.new(740, 640)
@@ -532,7 +535,7 @@ function ArtistsView.Mount()
 
 		local title = Components.makeLabel("Title", Theme.Fonts.Display, Theme.Colors.Gold, 22)
 		title.Position = UDim2.fromOffset(16, 10)
-		title.Size = UDim2.new(1, -350, 0, 26)
+		title.Size = UDim2.new(1, -400, 0, 26)
 		title.TextXAlignment = Enum.TextXAlignment.Left
 		title.Text = crate.Name
 		title.TextColor3 = crate.Color
@@ -540,18 +543,18 @@ function ArtistsView.Mount()
 
 		local info = Components.makeLabel("Info", Theme.Fonts.Body, Theme.Colors.TextMuted, 15)
 		info.Position = UDim2.fromOffset(16, 40)
-		info.Size = UDim2.new(1, -350, 0, 40)
+		info.Size = UDim2.new(1, -400, 0, 40)
 		info.TextWrapped = true
 		info.TextXAlignment = Enum.TextXAlignment.Left
 		info.TextYAlignment = Enum.TextYAlignment.Top
 		info.Parent = card
 
-		local one = textButton("One", "x1", Theme.Colors.Success, UDim2.fromOffset(128, 64))
+		local one = textButton("One", "x1", Theme.Colors.Success, UDim2.fromOffset(112, 64))
 		one.AnchorPoint = Vector2.new(1, 0.5)
-		one.Position = UDim2.new(1, -148, 0.5, 0)
+		one.Position = UDim2.new(1, -132, 0.5, 0)
 		one.Parent = card
 
-		local ten = textButton("Ten", "x10", Theme.Colors.Success, UDim2.fromOffset(128, 64))
+		local ten = textButton("Ten", "x10", Theme.Colors.Success, UDim2.fromOffset(112, 64))
 		ten.AnchorPoint = Vector2.new(1, 0.5)
 		ten.Position = UDim2.new(1, -12, 0.5, 0)
 		ten.Parent = card
@@ -559,19 +562,30 @@ function ArtistsView.Mount()
 		local lock = Components.makeLabel("Lock", Theme.Fonts.Display, Theme.Colors.TextMuted, 20)
 		lock.AnchorPoint = Vector2.new(1, 0.5)
 		lock.Position = UDim2.new(1, -12, 0.5, 0)
-		lock.Size = UDim2.fromOffset(264, 40)
+		lock.Size = UDim2.fromOffset(230, 40)
 		lock.Visible = false
 		lock.Parent = card
 
 		local oddsButton = textButton("Odds", "%", Theme.Colors.Accent, UDim2.fromOffset(48, 48))
 		oddsButton.AnchorPoint = Vector2.new(1, 0.5)
-		oddsButton.Position = UDim2.new(1, -288, 0.5, 0)
+		oddsButton.Position = UDim2.new(1, -254, 0.5, 0)
 		oddsButton.Parent = card
 		trove:Connect(oddsButton.Activated, function()
 			openOdds(crate)
 		end)
 
-		local entry: CrateCard = { Def = crate, Info = info, One = one, Ten = ten, Lock = lock, Odds = oddsButton }
+		-- Auto-Abrir (Gamepass): abre o painel das condições
+		local autoButton = textButton("Auto", "AUTO", Theme.Colors.Gold, UDim2.fromOffset(72, 48))
+		autoButton.AnchorPoint = Vector2.new(1, 0.5)
+		autoButton.Position = UDim2.new(1, -312, 0.5, 0)
+		autoButton.TextColor3 = Theme.Colors.Background
+		autoButton.Visible = false
+		autoButton.Parent = card
+		trove:Connect(autoButton.Activated, function()
+			AutoOpenView.OpenConfig(crate)
+		end)
+
+		local entry: CrateCard = { Def = crate, Info = info, One = one, Ten = ten, Lock = lock, Odds = oddsButton, Auto = autoButton }
 		table.insert(crateCards, entry)
 
 		for _, pair in { { one, 1 }, { ten, 10 } } do
@@ -777,12 +791,14 @@ function ArtistsView.Mount()
 		local budget = if snapshot then BigNum.deserialize(snapshot.Hype) else BigNum.ZERO
 		local tier = if snapshot then snapshot.StageTier else 1
 		local costFactor = 1 - math.clamp(skills.CrateCostCut, 0, 0.9)
+		local ownsAuto = AutoOpenController.Owns()
 		for _, card in crateCards do
 			local crate = card.Def
 			local unlocked = tier >= crate.RequiredTier
 			card.One.Visible = unlocked
 			card.Ten.Visible = unlocked
 			card.Lock.Visible = not unlocked
+			card.Auto.Visible = unlocked and ownsAuto
 			if unlocked then
 				local unitCost = crate.Cost * costFactor
 				card.Info.Text = string.format(

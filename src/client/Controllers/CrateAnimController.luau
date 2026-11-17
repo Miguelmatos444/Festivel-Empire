@@ -48,8 +48,15 @@ local queue: { CrateResult } = {}
 local rng = Random.new()
 local settingsBucket = TokenBucket.new(2, 3)
 
+-- O resultado em animação veio do Auto-Abrir (força a animação rápida)
+local playingAuto = false
+
 function CrateAnimController.PopNext(): CrateResult?
-	return table.remove(queue, 1)
+	local result = table.remove(queue, 1)
+	if result then
+		playingAuto = result.Auto == true
+	end
+	return result
 end
 
 function CrateAnimController.HasQueued(): boolean
@@ -62,7 +69,7 @@ end
 
 function CrateAnimController.IsFast(): boolean
 	local snapshot = StateController.Get()
-	return snapshot ~= nil and snapshot.FastCrateAnim == true
+	return playingAuto or (snapshot ~= nil and snapshot.FastCrateAnim == true)
 end
 
 function CrateAnimController.IsLowVfx(): boolean

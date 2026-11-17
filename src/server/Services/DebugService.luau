@@ -758,6 +758,18 @@ commands.gamepass = {
 	end,
 }
 
+commands.autoopen = {
+	Usage = "autoopen on|off",
+	Description = "Simula o Gamepass Auto-Abrir nesta sessão (botão AUTO nas crates)",
+	Run = function(player: Player, args: { string }): string
+		if args[1] ~= "on" and args[1] ~= "off" then
+			return "Uso: /fe autoopen on|off"
+		end
+		MonetizationService.DebugSetOwned(player, "AutoOpen", args[1] == "on")
+		return "Auto-Abrir: " .. args[1] .. (if args[1] == "on" then " (abre o menu das crates e carrega em AUTO)" else "")
+	end,
+}
+
 commands.plots = {
 	Usage = "plots",
 	Description = "Lista os donos dos terrenos",

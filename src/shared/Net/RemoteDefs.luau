@@ -45,6 +45,8 @@ export type Registry = {
 	ClaimIndexReward: RemoteDef,
 	SetShowcase: RemoteDef,
 	RemixTrait: RemoteDef,
+	StartAutoOpen: RemoteDef,
+	StopAutoOpen: RemoteDef,
 	StateSnapshot: RemoteDef,
 	StateDelta: RemoteDef,
 	Notify: RemoteDef,
@@ -58,6 +60,7 @@ export type Registry = {
 	RemixResult: RemoteDef,
 	RemixBurst: RemoteDef,
 	RetentionSync: RemoteDef,
+	AutoOpenState: RemoteDef,
 }
 
 local UID_ARG: Types.ArgSpec = { Kind = "string", MaxLength = 12, Pattern = "^%d+$" }
@@ -247,6 +250,25 @@ local Defs: Registry = {
 		RateLimit = { PerSecond = 2, Burst = 3 },
 		Args = { UID_ARG },
 	},
+	-- Auto-Abrir (Fase 13C): (crateId, count 1|10, stopSlot 0..6, stopNew, stopShiny)
+	StartAutoOpen = {
+		Name = "StartAutoOpen",
+		Direction = "ClientToServer",
+		RateLimit = { PerSecond = 1, Burst = 2 },
+		Args = {
+			{ Kind = "enum", Values = ArtistsConfig.CrateIds },
+			{ Kind = "number", Integer = true, Min = 1, Max = 10 },
+			{ Kind = "number", Integer = true, Min = 0, Max = #ArtistsConfig.SlotOdds },
+			{ Kind = "boolean" },
+			{ Kind = "boolean" },
+		},
+	},
+	StopAutoOpen = { -- sem argumentos
+		Name = "StopAutoOpen",
+		Direction = "ClientToServer",
+		RateLimit = { PerSecond = 2, Burst = 4 },
+		Args = {},
+	},
 
 	-- Servidor -> Cliente ----------------------------------------------------
 	StateSnapshot = { -- payload: Types.PlayerStateSnapshot
@@ -314,6 +336,11 @@ local Defs: Registry = {
 		Direction = "ServerToClient",
 		Args = {},
 	},
+	AutoOpenState = { -- payload: Types.AutoOpenState (só o próprio jogador)
+		Name = "AutoOpenState",
+		Direction = "ServerToClient",
+		Args = {},
+	},
 }
 
 local All: { RemoteDef } = {
@@ -343,6 +370,8 @@ local All: { RemoteDef } = {
 	Defs.ClaimIndexReward,
 	Defs.SetShowcase,
 	Defs.RemixTrait,
+	Defs.StartAutoOpen,
+	Defs.StopAutoOpen,
 	Defs.StateSnapshot,
 	Defs.StateDelta,
 	Defs.Notify,
@@ -356,6 +385,7 @@ local All: { RemoteDef } = {
 	Defs.RemixResult,
 	Defs.RemixBurst,
 	Defs.RetentionSync,
+	Defs.AutoOpenState,
 }
 
 return table.freeze({

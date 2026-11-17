@@ -9,6 +9,7 @@
 ]]
 
 local ProfileTemplate = require(script.Parent.ProfileTemplate)
+local MonetizationConfig = require(game:GetService("ReplicatedStorage").Shared.Config.Monetization)
 
 type RawData = { [string]: unknown }
 type Migration = (data: RawData) -> ()
@@ -100,6 +101,23 @@ local steps: { [number]: Migration } = {
 					end
 				end
 			end
+		end
+	end,
+
+	-- v5 -> v6 (Fase 13C): condições do Auto-Abrir com os valores por defeito
+	[5] = function(data: RawData)
+		local settings = data.Settings
+		if type(settings) ~= "table" then
+			return -- o Reconcile cria Settings completo a partir do template
+		end
+		local raw = (settings :: unknown) :: RawData
+		if type(raw.AutoOpen) ~= "table" then
+			raw.AutoOpen = {
+				Count = 1,
+				StopSlot = MonetizationConfig.AutoOpen.DefaultStopSlot,
+				StopNew = true,
+				StopShiny = true,
+			}
 		end
 	end,
 }
