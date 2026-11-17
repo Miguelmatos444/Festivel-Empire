@@ -47,6 +47,7 @@ type SlotItem = {
 	Stroke: UIStroke,
 	Name: TextLabel,
 	Tier: TextLabel,
+	Scale: UIScale, -- foco: o traço do meio cresce
 }
 
 local MODAL_NAME = "Remix"
@@ -64,6 +65,13 @@ local START_INDEX = STRIP_COUNT - 1 -- a faixa começa em baixo e desce: os tra�
 local RESULT_INDEX = 4
 local SPIN_TIME = 2.6
 local SPIN_POWER = 5 -- 1 - (1 - t)^5
+local PITCH = ITEM_HEIGHT + ITEM_GAP
+local PRESPIN_PERIOD = 6 -- traços que se repetem enquanto roda à espera do servidor
+local PRESPIN_RAMP = 0.2 -- s de arranque
+local PENDING_TIMEOUT = 3 -- s sem resposta: pára e volta ao traço atual
+local OVERSHOOT_PX = 10 -- no fim passa um pouco do traço e volta
+local FOCUS_SCALE = 0.08
+local TICK_GAP = 0.03
 
 -- O que cada tipo de traço melhora (os valores aparecem por baixo)
 local KIND_TEXT: { [string]: string } = {
@@ -241,6 +249,8 @@ function RemixView.Mount()
 	Components.addCorner(portrait, UDim.new(0, 14))
 	local portraitStroke = Components.addStroke(portrait, PURPLE, 2)
 	portrait.Parent = center
+	local portraitScale = Instance.new("UIScale")
+	portraitScale.Parent = portrait
 	local portraitCamera = Instance.new("Camera")
 	portraitCamera.FieldOfView = 32
 	portraitCamera.Parent = portrait
@@ -268,6 +278,8 @@ function RemixView.Mount()
 	Components.addCorner(slot, UDim.new(0, 14))
 	local slotStroke = Components.addStroke(slot, PURPLE, 3)
 	slot.Parent = center
+	local slotScale = Instance.new("UIScale")
+	slotScale.Parent = slot
 
 	local strip = Components.makeFrame("Strip")
 	strip.Size = UDim2.fromOffset(SLOT_WIDTH, STRIP_COUNT * (ITEM_HEIGHT + ITEM_GAP))
@@ -294,7 +306,9 @@ function RemixView.Mount()
 		tier.Size = UDim2.new(1, -16, 0, 18)
 		Components.addStroke(tier, Theme.Colors.Background, 1)
 		tier.Parent = frame
-		table.insert(slotItems, { Frame = frame, Stroke = stroke, Name = name, Tier = tier })
+		local itemScale = Instance.new("UIScale")
+		itemScale.Parent = frame
+		table.insert(slotItems, { Frame = frame, Stroke = stroke, Name = name, Tier = tier, Scale = itemScale })
 	end
 
 	-- Marcadores laterais do traço do meio
@@ -342,8 +356,6 @@ function RemixView.Mount()
 	spinButton.AnchorPoint = Vector2.new(0.5, 1)
 	spinButton.Position = UDim2.new(0.5, 0, 1, 0)
 	spinButton.Parent = center
-	local spinScale = Instance.new("UIScale")
-	spinScale.Parent = spinButton
 
 	-- ============ Direita: probabilidades e traços possíveis ============
 	local odds = Instance.new("Frame")
@@ -432,6 +444,14 @@ function RemixView.Mount()
 	local spinFrom = 0
 	local spinTo = 0
 	local lastTick = -1
+	local lastTickAt = 0
+	local spinOvershoot = 0
+	local spinTime = SPIN_TIME
+	local preActive = false -- a rodar à espera do servidor
+	local preStart = 0
+	local preVelocity = 0
+	local pendingToken = 0
+	local justSelected: string? = nil -- artista acabado de escolher (pulo na carta)
 	local landResult: RemixResult? = nil
 	local portraitRig: Model? = nil
 	local portraitBase = CFrame.new()
@@ -478,9 +498,17 @@ function RemixView.Mount()
 		end
 	end
 
+	local function resetFocus()
+		for _, item in slotItems do
+			item.Scale.Scale = 1
+		end
+	end
+
 	-- Roleta parada a mostrar o traço atual do artista
 	local function showIdle(artist: ArtistData?)
 		spinning = false
+		preActive = false
+		resetFocus()
 		fillStrip(START_INDEX, if artist then artist.Trait else "", if artist then artist.TraitTier else "")
 		strip.Position = UDim2.fromOffset(0, stripYFor(START_INDEX))
 		local tier = if artist then TraitCalc.GetTier(artist.TraitTier) else nil
@@ -579,8 +607,10 @@ function RemixView.Mount()
 			Components.addCorner(tile, UDim.new(0, 12))
 			Components.addStroke(tile, if uid == selectedUid then Theme.Colors.Text else (if rarity then rarity.Color else PURPLE), if uid == selectedUid then 3 else 1.5)
 			tile.Parent = list
-			local hover = Instance.new("UIScale")
-			hover.Parent = tile
+			local tileScale = Components.addPressFeedback(tile, 1.05)
+			if uid == justSelected then
+				Components.bump(tileScale, 1.1)
+			end
 
 			local band = Instance.new("Frame")
 			band.Size = UDim2.new(1, 0, 0, 26)
@@ -609,12 +639,6 @@ function RemixView.Mount()
 			traitLabel.Text = if trait and tier then string.format("%s (%s)", trait.Name, tier.Name) else "Sem traço"
 			traitLabel.Parent = tile
 
-			listTrove:Connect(tile.MouseEnter, function()
-				TweenService:Create(hover, TweenInfo.new(0.12), { Scale = 1.05 }):Play()
-			end)
-			listTrove:Connect(tile.MouseLeave, function()
-				TweenService:Create(hover, TweenInfo.new(0.12), { Scale = 1 }):Play()
-			end)
 			listTrove:Connect(tile.Activated, function()
 				if spinning or pendingUid then
 					return
@@ -623,21 +647,84 @@ function RemixView.Mount()
 				confirmUntil = 0
 				showPortrait(artist)
 				showIdle(artist)
+				-- A cara e a roleta entram com um pulo
+				Components.bump(portraitScale, 1.08)
+				Components.bump(slotScale, 1.05)
+				justSelected = uid
 				rebuildList()
+				justSelected = nil
 			end)
 		end
 		refreshDetail()
 	end
 
-	-- Começa a rodar até ao traço sorteado pelo servidor
-	local function startSpin(result: RemixResult)
-		fillStrip(RESULT_INDEX, result.Trait, result.Tier)
-		-- O topo (traço atual) fica no índice de partida, para a roleta arrancar dele
-		setItem(slotItems[START_INDEX], result.OldTrait, result.OldTier)
-		spinFrom = stripYFor(START_INDEX)
-		spinTo = stripYFor(RESULT_INDEX) + rng:NextNumber(-0.25, 0.25) * ITEM_HEIGHT
-		spinStart = os.clock()
+	-- Posição da roleta antecipada: arranque suave e depois velocidade constante; os
+	-- traços repetem-se de PRESPIN_PERIOD em PRESPIN_PERIOD, por isso dá voltas sem se notar
+	local function preSpinY(elapsed: number): (number, number)
+		local distance: number
+		local speed: number
+		if elapsed < PRESPIN_RAMP then
+			distance = preVelocity * elapsed * elapsed / (2 * PRESPIN_RAMP)
+			speed = preVelocity * elapsed / PRESPIN_RAMP
+		else
+			distance = preVelocity * (elapsed - PRESPIN_RAMP / 2)
+			speed = preVelocity
+		end
+		return stripYFor(START_INDEX) + distance % (PRESPIN_PERIOD * PITCH), speed
+	end
+
+	-- Resposta imediata ao clique: a roleta começa a descer já, a partir do traço atual
+	local function startPreSpin(artist: ArtistData)
+		local filler: { { string } } = {}
+		for _ = 1, PRESPIN_PERIOD do
+			local traitId, tierId = TraitCalc.Roll(rng)
+			table.insert(filler, { traitId, tierId })
+		end
+		-- O traço atual fica no índice de partida (e em cada volta), sem saltos
+		filler[1] = { artist.Trait, artist.TraitTier }
+		for index = START_INDEX - PRESPIN_PERIOD - 3, STRIP_COUNT do
+			local entry = filler[((START_INDEX - index) % PRESPIN_PERIOD) + 1]
+			setItem(slotItems[index], entry[1], entry[2])
+		end
+		resetFocus()
+		preVelocity = SPIN_POWER * (START_INDEX - RESULT_INDEX) * PITCH / SPIN_TIME
+		preStart = os.clock()
+		preActive = true
 		lastTick = START_INDEX
+		effectLabel.Text = ""
+		slotStroke.Color = PURPLE
+	end
+
+	-- Roda até ao traço sorteado pelo servidor; se já estava a rodar, continua daí à
+	-- mesma velocidade (as cartas visíveis ficam, as de baixo recebem o resultado)
+	local function startSpin(result: RemixResult)
+		spinTo = stripYFor(RESULT_INDEX) + rng:NextNumber(-0.25, 0.25) * ITEM_HEIGHT
+		if preActive then
+			local y, speed = preSpinY(os.clock() - preStart)
+			preActive = false
+			local centerIndex = math.floor((SLOT_HEIGHT / 2 - y) / PITCH) + 1
+			for index = 1, centerIndex - 3 do
+				if index == RESULT_INDEX then
+					setItem(slotItems[index], result.Trait, result.Tier)
+				else
+					local traitId, tierId = TraitCalc.Roll(rng)
+					setItem(slotItems[index], traitId, tierId)
+				end
+			end
+			spinFrom = y
+			spinTime = math.clamp(SPIN_POWER * (spinTo - y) / math.max(speed, 1), SPIN_TIME * 0.6, SPIN_TIME * 1.3)
+		else
+			fillStrip(RESULT_INDEX, result.Trait, result.Tier)
+			-- O topo (traço atual) fica no índice de partida, para a roleta arrancar dele
+			setItem(slotItems[START_INDEX], result.OldTrait, result.OldTier)
+			spinFrom = stripYFor(START_INDEX)
+			spinTime = SPIN_TIME
+			lastTick = START_INDEX
+			resetFocus()
+		end
+		-- t^4·(1−t) tem o máximo 0.082 em t = 0.8: passa OVERSHOOT_PX do traço e volta
+		spinOvershoot = OVERSHOOT_PX / (0.082 * math.max(math.abs(spinTo - spinFrom), 1))
+		spinStart = os.clock()
 		landResult = result
 		spinning = true
 		effectLabel.Text = ""
@@ -651,13 +738,7 @@ function RemixView.Mount()
 		local item = slotItems[RESULT_INDEX]
 		local tier = TraitCalc.GetTier(result.Tier)
 		slotStroke.Color = if tier then tier.Color else PURPLE
-		local pop = Instance.new("UIScale")
-		pop.Scale = 1.25
-		pop.Parent = item.Frame
-		TweenService:Create(pop, Theme.Tween.Toast, { Scale = 1 }):Play()
-		task.delay(0.6, function()
-			pop:Destroy()
-		end)
+		Components.bump(item.Scale, 1.22)
 		effectLabel.Text = "Novo traço! " .. TraitCalc.DescribeEffect(result.Trait, result.Tier)
 		if result.Tier == TraitsConfig.AnnounceTier then
 			flash.BackgroundTransparency = 0.2
@@ -672,18 +753,37 @@ function RemixView.Mount()
 		rebuildList()
 	end
 
-	local function onRender(dt: number)
-		if spinning then
-			local t = math.clamp((os.clock() - spinStart) / SPIN_TIME, 0, 1)
-			local eased = 1 - (1 - t) ^ SPIN_POWER
-			local y = spinFrom + (spinTo - spinFrom) * eased
-			strip.Position = UDim2.fromOffset(0, y)
-			-- Traço no centro (para o "tick")
-			local centerIndex = math.floor((SLOT_HEIGHT / 2 - y) / (ITEM_HEIGHT + ITEM_GAP)) + 1
-			if centerIndex ~= lastTick then
-				lastTick = centerIndex
+	-- "Tick" no traço do meio e foco: os traços perto do centro crescem
+	local function updateStrip(y: number, now: number)
+		strip.Position = UDim2.fromOffset(0, y)
+		local centerIndex = math.floor((SLOT_HEIGHT / 2 - y) / PITCH) + 1
+		if centerIndex ~= lastTick then
+			lastTick = centerIndex
+			if now - lastTickAt >= TICK_GAP then
+				lastTickAt = now
 				CrateSfx.Play("CrateTick")
 			end
+		end
+		local center = SLOT_HEIGHT / 2
+		for index = math.max(1, centerIndex - 3), math.min(STRIP_COUNT, centerIndex + 3) do
+			local itemCenter = y + (index - 1) * PITCH + ITEM_HEIGHT / 2
+			local closeness = math.max(0, 1 - math.abs(itemCenter - center) / (PITCH * 1.2))
+			slotItems[index].Scale.Scale = 1 + FOCUS_SCALE * closeness * closeness
+		end
+	end
+
+	local function onRender(dt: number)
+		local now = os.clock()
+		if preActive then
+			local y = preSpinY(now - preStart)
+			updateStrip(y, now)
+		end
+		if spinning then
+			local t = math.clamp((now - spinStart) / spinTime, 0, 1)
+			-- Quint Out + "passa e volta" no fim
+			local eased = 1 - (1 - t) ^ SPIN_POWER + spinOvershoot * t ^ 4 * (1 - t)
+			local y = spinFrom + (spinTo - spinFrom) * eased
+			updateStrip(y, now)
 			if t >= 1 then
 				local result = landResult
 				landResult = nil
@@ -730,6 +830,7 @@ function RemixView.Mount()
 			end
 			-- Fechar a meio da roleta não perde nada: o traço já foi entregue pelo servidor
 			spinning = false
+			preActive = false
 			landResult = nil
 			pendingUid = nil
 			clearPortrait()
@@ -779,24 +880,36 @@ function RemixView.Mount()
 		confirmUntil = 0
 		if ArtistController.Remix(uid) then
 			pendingUid = uid
-			spinScale.Scale = 0.9
-			TweenService:Create(spinScale, Theme.Tween.Toast, { Scale = 1 }):Play()
+			-- Resposta imediata: a roleta começa já a rodar enquanto o servidor sorteia
+			startPreSpin(artist)
+			pendingToken += 1
+			local token = pendingToken
+			task.delay(PENDING_TIMEOUT, function()
+				if token == pendingToken and pendingUid == uid and isOpen then
+					pendingUid = nil
+					local latest = ArtistController.Get()
+					showIdle(if latest then latest.Artists[uid] else nil)
+					refreshDetail()
+				end
+			end)
 		end
 		refreshDetail()
 	end)
-	trove:Connect(spinButton.MouseEnter, function()
-		TweenService:Create(spinScale, TweenInfo.new(0.12), { Scale = 1.04 }):Play()
-	end)
-	trove:Connect(spinButton.MouseLeave, function()
-		TweenService:Create(spinScale, TweenInfo.new(0.12), { Scale = 1 }):Play()
-	end)
+	Components.addPressFeedback(spinButton, 1.04)
+	Components.addPressFeedback(closeButton, 1.1)
 
 	trove:Add(ArtistController.Remixed:Connect(function(result: RemixResult)
 		if not isOpen or result.Uid ~= pendingUid then
 			pendingUid = nil
+			if preActive then
+				local sync = ArtistController.Get()
+				local uid = selectedUid
+				showIdle(if sync and uid then sync.Artists[uid] else nil)
+			end
 			return
 		end
 		pendingUid = nil
+		pendingToken += 1
 		startSpin(result)
 	end))
 	trove:Add(ArtistController.Changed:Connect(function(_sync: ArtistsSync)

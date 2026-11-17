@@ -210,6 +210,7 @@ function AutoOpenView.Mount()
 	local rules: AutoOpenSettings = AutoOpenController.GetRules()
 	local chipTrove = trove:Extend()
 	local hideToken = 0
+	local bumpSlot = -1 -- chip acabado de escolher (dá um pulo)
 
 	local function refreshConfig()
 		local crate = configCrate
@@ -245,7 +246,11 @@ function AutoOpenView.Mount()
 			Components.addCorner(chip, UDim.new(0, 10))
 			Components.addStroke(chip, if selected then Theme.Colors.Text else entry.Color, if selected then 3 else 1)
 			chip.Parent = chipGrid
-			local name = Components.makeLabel("Name", Theme.Fonts.Display, Theme.Colors.Text, 15)
+			local chipScale = Components.addPressFeedback(chip, 1.05)
+			if selected and entry.Slot == bumpSlot then
+				Components.bump(chipScale, 1.12)
+			end
+			local name =Components.makeLabel("Name", Theme.Fonts.Display, Theme.Colors.Text, 15)
 			name.Position = UDim2.fromOffset(6, 2)
 			name.Size = UDim2.new(1, -12, 0, 20)
 			name.Text = entry.Name
@@ -259,7 +264,9 @@ function AutoOpenView.Mount()
 			detail.Parent = chip
 			chipTrove:Connect(chip.Activated, function()
 				rules.StopSlot = entry.Slot
+				bumpSlot = entry.Slot
 				refreshConfig()
+				bumpSlot = -1
 			end)
 		end
 	end
@@ -269,11 +276,24 @@ function AutoOpenView.Mount()
 			return
 		end
 		isOpen = open
-		overlay.Visible = open
-		holder.Visible = open
 		if open then
+			overlay.Visible = true
+			holder.Visible = true
+			overlay.BackgroundTransparency = 1
+			TweenService:Create(overlay, Theme.Tween.Fast, { BackgroundTransparency = 0.45 }):Play()
 			popScale.Scale = 0.85
 			TweenService:Create(popScale, Theme.Tween.Toast, { Scale = 1 }):Play()
+		else
+			-- Sai a encolher e o fundo a desvanecer
+			TweenService:Create(overlay, Theme.Tween.FadeOut, { BackgroundTransparency = 1 }):Play()
+			local closing = TweenService:Create(popScale, Theme.Tween.FadeOut, { Scale = 0.85 })
+			closing.Completed:Once(function()
+				if not isOpen then
+					overlay.Visible = false
+					holder.Visible = false
+				end
+			end)
+			closing:Play()
 		end
 	end
 
@@ -294,12 +314,37 @@ function AutoOpenView.Mount()
 		return if rarity then rarity.Name else "—"
 	end
 
+	local BAR_SHOWN = UDim2.new(0.5, 0, 0, 8)
+	local BAR_HIDDEN = UDim2.new(0.5, 0, 0, -BAR_SIZE.Y - 12)
+
+	-- Desce do topo com mola (ou, se já estava, só dá um pulo)
+	local function showBar()
+		if not bar.Visible then
+			bar.Visible = true
+			bar.Position = BAR_HIDDEN
+			TweenService:Create(bar, TweenInfo.new(0.45, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Position = BAR_SHOWN }):Play()
+		else
+			Components.bump(barScale, 1.04)
+		end
+	end
+
+	local function hideBar()
+		local slide = TweenService:Create(bar, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { Position = BAR_HIDDEN })
+		local token = hideToken
+		slide.Completed:Once(function()
+			if token == hideToken then
+				bar.Visible = false
+			end
+		end)
+		slide:Play()
+	end
+
 	local function renderBar(state: AutoOpenState)
 		local crate = ArtistCalc.GetCrate(state.CrateId)
 		local best = RaritiesConfig.ById[state.Best]
 		hideToken += 1
 		if state.Running then
-			bar.Visible = true
+			showBar()
 			stopButton.Visible = true
 			barStroke.Color = if best then best.Color else Theme.Colors.Gold
 			barLabel.Text = string.format(
@@ -312,16 +357,18 @@ function AutoOpenView.Mount()
 			return
 		end
 		-- Parou: motivo durante uns segundos
-		bar.Visible = true
+		local wasVisible = bar.Visible
+		showBar()
 		stopButton.Visible = false
 		barStroke.Color = Theme.Colors.Highlight
 		barLabel.Text = string.format("Parou: %s (%d aberturas · melhor: %s)", state.Reason or "—", state.Opened, bestText(state))
-		barScale.Scale = 1.12
-		TweenService:Create(barScale, Theme.Tween.Toast, { Scale = 1 }):Play()
+		if wasVisible then
+			Components.bump(barScale, 1.12)
+		end
 		local token = hideToken
 		task.delay(AUTO.ReasonTime, function()
 			if token == hideToken then
-				bar.Visible = false
+				hideBar()
 			end
 		end)
 	end
@@ -366,6 +413,9 @@ function AutoOpenView.Mount()
 	end)
 
 	trove:Add(AutoOpenController.Changed:Connect(renderBar))
+	for _, button in { startButton, cancelButton, closeButton, stopButton, newButton, shinyButton, countButtons[1], countButtons[10] } do
+		Components.addPressFeedback(button, 1.05)
+	end
 	-- Outra UI aberta: fecha o painel e pára o Auto-Abrir
 	trove:Add(ModalManager.Listen(function(name: string)
 		if table.find(ALLOWED_MODALS, name) then

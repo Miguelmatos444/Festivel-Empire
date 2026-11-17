@@ -320,6 +320,9 @@ function ArtistsView.Mount()
 	tabButtons.Collection.LayoutOrder = 2
 	tabButtons.Crates.Parent = tabBar
 	tabButtons.Collection.Parent = tabBar
+	for _, tabButton in tabButtons do
+		Components.addPressFeedback(tabButton, 1.02)
+	end
 
 	local function makePage(name: string): Frame
 		local page = Components.makeFrame(name)
@@ -344,6 +347,7 @@ function ArtistsView.Mount()
 	fastButton.AnchorPoint = Vector2.new(1, 0)
 	fastButton.Position = UDim2.new(1, -20, 0, 2)
 	fastButton.Parent = cratesPage
+	Components.addPressFeedback(fastButton, 1.03)
 	trove:Connect(fastButton.Activated, function()
 		local snapshot = StateController.Get()
 		local enabled = snapshot ~= nil and snapshot.FastCrateAnim == true
@@ -601,9 +605,32 @@ function ArtistsView.Mount()
 				local cost = BigNum.fromNumber(crate.Cost * count * (1 - math.clamp(cut, 0, 0.9)))
 				if BigNum.lt(BigNum.deserialize(snapshot.Hype), cost) or not ArtistController.OpenCrate(crate.Id, count) then
 					shake(button)
+					return
 				end
+				-- Resposta imediata: a roleta começa já a rodar enquanto o servidor sorteia
+				CrateAnimController.Anticipate(crate.Id, count)
 			end)
+			Components.addPressFeedback(button)
 		end
+		Components.addPressFeedback(oddsButton, 1.1)
+		Components.addPressFeedback(autoButton, 1.08)
+
+		-- Passar o rato pela crate: moldura acende e a carta cresce um pouco
+		local cardStroke = card:FindFirstChildOfClass("UIStroke")
+		local cardScale = Instance.new("UIScale")
+		cardScale.Parent = card
+		trove:Connect(card.MouseEnter, function()
+			TweenService:Create(cardScale, Theme.Tween.Fast, { Scale = 1.015 }):Play()
+			if cardStroke then
+				TweenService:Create(cardStroke, Theme.Tween.Fast, { Transparency = 0, Thickness = 2.5 }):Play()
+			end
+		end)
+		trove:Connect(card.MouseLeave, function()
+			TweenService:Create(cardScale, Theme.Tween.Fast, { Scale = 1 }):Play()
+			if cardStroke then
+				TweenService:Create(cardStroke, Theme.Tween.Fast, { Transparency = 0.4, Thickness = 1.5 }):Play()
+			end
+		end)
 	end
 
 	-- A revelação dos resultados (roleta, grelha x10, cinemática) é da CrateRevealView
@@ -1100,9 +1127,16 @@ function ArtistsView.Mount()
 
 	-- Separadores / abrir / fechar --------------------------------------------------
 	local function setTab(tab: Tab)
+		local changedTab = currentTab ~= tab
 		currentTab = tab
 		cratesPage.Visible = tab == "Crates"
 		collectionPage.Visible = tab == "Collection"
+		-- A página nova entra a deslizar do lado do separador escolhido
+		if changedTab then
+			local page = if tab == "Crates" then cratesPage else collectionPage
+			page.Position = UDim2.fromOffset(if tab == "Crates" then -28 else 28, HEADER)
+			TweenService:Create(page, TweenInfo.new(0.3, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), { Position = UDim2.fromOffset(0, HEADER) }):Play()
+		end
 		for name, button in tabButtons do
 			button.BackgroundColor3 = if name == tab then Theme.Colors.Accent else Theme.Colors.Background
 		end

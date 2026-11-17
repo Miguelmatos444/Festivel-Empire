@@ -43,6 +43,16 @@ local resultQueued: Signal.Signal<()> = Signal.new()
 -- Disparado quando chega um resultado novo à fila
 CrateAnimController.ResultQueued = resultQueued
 
+local anticipated: Signal.Signal<string, number> = Signal.new()
+
+-- (crateId, count) — o jogador pediu uma abertura: a CrateRevealView começa logo a
+-- animar (roleta a rodar / cartas a entrar) enquanto o resultado do servidor não chega
+CrateAnimController.Anticipated = anticipated
+
+function CrateAnimController.Anticipate(crateId: string, count: number)
+	anticipated:Fire(crateId, count)
+end
+
 local trove = Trove.new()
 local queue: { CrateResult } = {}
 local rng = Random.new()
@@ -70,6 +80,12 @@ end
 function CrateAnimController.IsFast(): boolean
 	local snapshot = StateController.Get()
 	return playingAuto or (snapshot ~= nil and snapshot.FastCrateAnim == true)
+end
+
+-- Só a opção "Animação rápida" do jogador (sem o Auto-Abrir)
+function CrateAnimController.IsFastSetting(): boolean
+	local snapshot = StateController.Get()
+	return snapshot ~= nil and snapshot.FastCrateAnim == true
 end
 
 function CrateAnimController.IsLowVfx(): boolean

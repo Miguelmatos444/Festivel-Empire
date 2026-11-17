@@ -4,9 +4,70 @@
 	Construtores de UI reutilizáveis e cálculo de escala responsiva.
 ]]
 
+local TweenService = game:GetService("TweenService")
+
 local Theme = require(script.Parent.Theme)
 
 local Components = {}
+
+local PRESS_IN = TweenInfo.new(0.07, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local HOVER = TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local RELEASE = TweenInfo.new(0.32, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+
+--[[
+	Resposta tátil de um botão: cresce um pouco com o rato por cima, encolhe logo ao
+	carregar (rato, toque ou comando) e volta com uma mola ao largar. Usa o UIScale do
+	botão (cria um se não houver). As ligações morrem com o botão.
+]]
+function Components.addPressFeedback(button: GuiButton, hoverScale: number?): UIScale
+	local existing = button:FindFirstChildOfClass("UIScale")
+	local scale: UIScale
+	if existing then
+		scale = existing
+	else
+		scale = Instance.new("UIScale")
+		scale.Parent = button
+	end
+	local hovered = false
+	local pressed = false
+	local function apply(info: TweenInfo)
+		local target = if pressed then 0.9 elseif hovered then (hoverScale or 1.05) else 1
+		TweenService:Create(scale, info, { Scale = target }):Play()
+	end
+	button.MouseEnter:Connect(function()
+		hovered = true
+		apply(HOVER)
+	end)
+	button.MouseLeave:Connect(function()
+		hovered = false
+		pressed = false
+		apply(HOVER)
+	end)
+	button.InputBegan:Connect(function(input: InputObject)
+		local kind = input.UserInputType
+		if kind == Enum.UserInputType.MouseButton1 or kind == Enum.UserInputType.Touch or input.KeyCode == Enum.KeyCode.ButtonA then
+			pressed = true
+			apply(PRESS_IN)
+		end
+	end)
+	button.InputEnded:Connect(function(input: InputObject)
+		local kind = input.UserInputType
+		if kind == Enum.UserInputType.MouseButton1 or kind == Enum.UserInputType.Touch or input.KeyCode == Enum.KeyCode.ButtonA then
+			pressed = false
+			if kind == Enum.UserInputType.Touch then
+				hovered = false
+			end
+			apply(RELEASE)
+		end
+	end)
+	return scale
+end
+
+-- Pequeno "pulo" de escala (ex.: um número que mudou): sobe até `amount` e volta com mola
+function Components.bump(scale: UIScale, amount: number?)
+	scale.Scale = amount or 1.08
+	TweenService:Create(scale, RELEASE, { Scale = 1 }):Play()
+end
 
 function Components.addCorner(parent: GuiObject, radius: UDim): UICorner
 	local corner = Instance.new("UICorner")

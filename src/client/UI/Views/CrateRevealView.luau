@@ -74,7 +74,16 @@ type Spin = {
 	FromX: number,
 	ToX: number,
 	LastIndex: number,
+	Overshoot: number, -- peso do "passa e volta" no fim (fração da distância)
 	OnDone: (() -> ())?,
+}
+
+-- Roleta a rodar antes de o servidor responder (resposta imediata ao clique)
+type PreSpin = {
+	Active: boolean,
+	Start: number,
+	Velocity: number, -- px/s (a mesma velocidade inicial da roleta "a sério")
+	FromX: number,
 }
 
 local MODAL_NAME = "CrateReveal" -- o ArtistsView usa o mesmo nome para não abrir por cima
@@ -91,6 +100,15 @@ local RAINBOW = ColorSequence.new({
 	ColorSequenceKeypoint.new(0.75, Color3.fromRGB(40, 200, 255)),
 	ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 60, 200)),
 })
+
+-- Fluidez e resposta (só apresentação)
+local PRESPIN_PERIOD = 8 -- cartas que se repetem enquanto a roleta roda à espera do servidor
+local PRESPIN_RAMP = 0.2 -- s de arranque da roleta antecipada
+local PENDING_TIMEOUT = 3 -- s sem resposta do servidor: desiste da antecipação
+local FOCUS_SCALE = 0.1 -- a carta debaixo do marcador cresce 10%
+local OVERSHOOT_PX = 14 -- no fim, a roleta passa um pouco da carta e volta
+local TICK_GAP = 0.03 -- s mínimos entre "ticks" (a alta velocidade)
+local BACKDROP_ALPHA = 0.3
 
 local CrateRevealView = {}
 
@@ -544,9 +562,7 @@ function CrateRevealView.Mount()
 		end)
 	end
 	for _, button in { continueButton, againButton } do
-		local scale = Instance.new("UIScale")
-		scale.Parent = button
-		addHover(button, scale, 1.08)
+		Components.addPressFeedback(button, 1.08)
 	end
 	for _, card in gridCards do
 		addHover(card.Outer, card.HoverScale, 1.08)
@@ -709,7 +725,14 @@ function CrateRevealView.Mount()
 	local playToken = 0
 	local currentResult: CrateResult? = nil
 	local renderConnection: RBXScriptConnection? = nil
-	local spin: Spin = { Active = false, Start = 0, Duration = 1, FromX = 0, ToX = 0, LastIndex = 0, OnDone = nil }
+	local spin: Spin = { Active = false, Start = 0, Duration = 1, FromX = 0, ToX = 0, LastIndex = 0, Overshoot = 0, OnDone = nil }
+	local preSpin: PreSpin = { Active = false, Start = 0, Velocity = 0, FromX = 0 }
+	local pendingCrate: string? = nil -- abertura pedida, à espera do resultado
+	local pendingCount = 0
+	local pendingToken = 0
+	local lastTickAt = 0
+	local markerKick = 0
+	local closeToken = 0
 	local pulseLabel: TextLabel? = nil
 	local pulseStroke: UIStroke? = nil
 	local confettiTime = 0
@@ -852,18 +875,75 @@ function CrateRevealView.Mount()
 	end
 
 	-- Render ---------------------------------------------------------------------------
-	local function onRender(dt: number)
-		local now = os.clock()
-		if spin.Active then
-			local t = math.clamp((now - spin.Start) / spin.Duration, 0, 1)
-			local eased = 1 - (1 - t) ^ rouletteCfg.EasingPower
-			local x = spin.FromX + (spin.ToX - spin.FromX) * eased
-			strip.Position = UDim2.fromOffset(x, 12)
-			local index = math.floor((ROULETTE_WIDTH / 2 - x) / pitch)
-			if index ~= spin.LastIndex then
-				spin.LastIndex = index
+	-- Carta debaixo do marcador: "tick" (com intervalo mínimo) e batida do marcador
+	local function checkTick(x: number, now: number)
+		local index = math.floor((ROULETTE_WIDTH / 2 - x) / pitch)
+		if index ~= spin.LastIndex then
+			spin.LastIndex = index
+			markerKick = 1
+			if now - lastTickAt >= TICK_GAP then
+				lastTickAt = now
 				CrateSfx.Play("CrateTick")
 			end
+		end
+	end
+
+	-- As cartas perto do marcador crescem (só as visíveis; as outras ficam a 1)
+	local function updateFocus(x: number)
+		local first = math.max(1, math.floor(-x / pitch))
+		local last = math.min(#stripCards, math.floor((ROULETTE_WIDTH - x) / pitch) + 2)
+		local center = ROULETTE_WIDTH / 2
+		local reach = pitch * 1.4
+		for index = first, last do
+			local cardCenter = x + (index - 1) * pitch + rouletteCfg.CardWidth / 2
+			local closeness = math.max(0, 1 - math.abs(cardCenter - center) / reach)
+			stripCards[index].HoverScale.Scale = 1 + FOCUS_SCALE * closeness * closeness
+		end
+	end
+
+	-- Posição da roleta antecipada: arranque suave e depois velocidade constante; as
+	-- primeiras cartas repetem-se de PRESPIN_PERIOD em PRESPIN_PERIOD, por isso pode
+	-- voltar atrás uma volta sem se notar
+	local function preSpinX(elapsed: number): (number, number)
+		local velocity = preSpin.Velocity
+		local distance: number
+		local speed: number
+		if elapsed < PRESPIN_RAMP then
+			distance = velocity * elapsed * elapsed / (2 * PRESPIN_RAMP)
+			speed = velocity * elapsed / PRESPIN_RAMP
+		else
+			distance = velocity * (elapsed - PRESPIN_RAMP / 2)
+			speed = velocity
+		end
+		local period = PRESPIN_PERIOD * pitch
+		distance %= period
+		return preSpin.FromX - distance, speed
+	end
+
+	local function onRender(dt: number)
+		local now = os.clock()
+		markerKick = math.max(0, markerKick - dt * 7)
+		marker.Size = UDim2.new(0, 4 + 6 * markerKick, 1, 0)
+		if preSpin.Active then
+			local x = preSpinX(now - preSpin.Start)
+			strip.Position = UDim2.fromOffset(x, 12)
+			checkTick(x, now)
+			updateFocus(x)
+		end
+		-- x10 à espera do servidor: as cartas viradas tremem de expectativa
+		if pendingCrate and grid.Visible then
+			for index, card in gridCards do
+				card.Inner.Rotation = math.sin(now * 9 + index * 1.3) * 2.5
+			end
+		end
+		if spin.Active then
+			local t = math.clamp((now - spin.Start) / spin.Duration, 0, 1)
+			-- Quint Out + um pequeno "passa e volta" no fim (t^4·(1−t) é 0 nos dois extremos)
+			local eased = 1 - (1 - t) ^ rouletteCfg.EasingPower + spin.Overshoot * t ^ 4 * (1 - t)
+			local x = spin.FromX + (spin.ToX - spin.FromX) * eased
+			strip.Position = UDim2.fromOffset(x, 12)
+			checkTick(x, now)
+			updateFocus(x)
 			if t >= 1 then
 				spin.Active = false
 				local callback = spin.OnDone
@@ -924,9 +1004,22 @@ function CrateRevealView.Mount()
 		playToken += 1
 		spin.Active = false
 		spin.OnDone = nil
+		preSpin.Active = false
+		pendingCrate = nil
 		pulseLabel = nil
 		pulseStroke = nil
-		backdrop.Visible = false
+		-- Sai a desvanecer (o painel deixa logo de responder)
+		closeToken += 1
+		local token = closeToken
+		backdrop.Active = false
+		local fadeOut = TweenService:Create(backdrop, Theme.Tween.FadeOut, { BackgroundTransparency = 1 })
+		fadeOut.Completed:Once(function()
+			if token == closeToken and not isOpen then
+				backdrop.Visible = false
+			end
+		end)
+		fadeOut:Play()
+		holder.Visible = false
 		local connection = renderConnection
 		if connection then
 			connection:Disconnect()
@@ -948,7 +1041,15 @@ function CrateRevealView.Mount()
 		end
 		isOpen = true
 		ModalManager.NotifyOpened(MODAL_NAME)
+		-- Entra a escurecer o ecrã, com o título a cair do topo
+		closeToken += 1
+		backdrop.Active = true
 		backdrop.Visible = true
+		holder.Visible = true
+		backdrop.BackgroundTransparency = 1
+		TweenService:Create(backdrop, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { BackgroundTransparency = BACKDROP_ALPHA }):Play()
+		title.Position = UDim2.fromOffset(0, -36)
+		TweenService:Create(title, TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Position = UDim2.fromOffset(0, 0) }):Play()
 		renderConnection = RunService.RenderStepped:Connect(onRender)
 	end
 
@@ -1026,9 +1127,14 @@ function CrateRevealView.Mount()
 		end
 		resultStroke.Color = accent
 		viewport.BackgroundColor3 = Theme.Colors.Background:Lerp(accent, 0.25)
+		-- Painel sobe e cresce com mola; os botões chegam logo a seguir
 		resultScale.Scale = 0.6
+		resultPanel.Position = UDim2.new(0.5, 0, 1, -16)
 		TweenService:Create(resultScale, TweenInfo.new(0.45, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
+		TweenService:Create(resultPanel, TweenInfo.new(0.4, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), { Position = UDim2.new(0.5, 0, 1, -76) }):Play()
 		resultPanel.Visible = true
+		buttons.Position = UDim2.new(0.5, 0, 1, 60)
+		TweenService:Create(buttons, TweenInfo.new(0.45, Enum.EasingStyle.Back, Enum.EasingDirection.Out, 0, false, 0.12), { Position = UDim2.new(0.5, 0, 1, -12) }):Play()
 		buttons.Visible = true
 		againButton.Visible = not result.Preview and not result.Auto
 		againButton.Text = "ABRIR DE NOVO x" .. #result.Items
@@ -1060,13 +1166,28 @@ function CrateRevealView.Mount()
 		end)
 	end
 
-	local function playRoulette(token: number, result: CrateResult)
+	local function resetFocus()
+		for _, card in stripCards do
+			card.HoverScale.Scale = 1
+		end
+	end
+
+	-- continuing: a roleta já estava a rodar (antecipada); as cartas visíveis ficam, a
+	-- roleta continua da posição atual e abranda à mesma velocidade até à carta ganha
+	local function playRoulette(token: number, result: CrateResult, continuing: boolean)
 		local item = result.Items[1]
 		local crate = ArtistCalc.GetCrate(result.CrateId)
 		local rarity = RaritiesConfig.ById[item.Rarity] or RaritiesConfig.List[1]
 		local cards = CrateAnimController.BuildRoulette(result.CrateId, item)
+		local currentX = strip.Position.X.Offset
+		local keepUpTo = if continuing then math.floor((ROULETTE_WIDTH - currentX) / pitch) + 2 else 0
 		for index, card in cards do
-			setCardContent(stripCards[index], crate, card.ArtistId, card.Rarity, card.Mystery)
+			if index > keepUpTo then
+				setCardContent(stripCards[index], crate, card.ArtistId, card.Rarity, card.Mystery)
+			end
+		end
+		if not continuing then
+			resetFocus()
 		end
 		-- A variante da carta ganha vê-se já enquanto a faixa passa (o "NOVO!" só ao parar)
 		local winnerCard = stripCards[rouletteCfg.WinnerIndex]
@@ -1086,12 +1207,24 @@ function CrateRevealView.Mount()
 			duration += rouletteCfg.SlowMotionExtra
 		end
 		local jitter = rng:NextNumber(-rouletteCfg.StopJitter, rouletteCfg.StopJitter) * rouletteCfg.CardWidth
-		spin.FromX = ROULETTE_WIDTH / 2 - centerOf(rouletteCfg.StartIndex)
 		spin.ToX = ROULETTE_WIDTH / 2 - (centerOf(rouletteCfg.WinnerIndex) + jitter)
-		spin.Duration = duration
+		if continuing then
+			local _, speed = preSpinX(os.clock() - preSpin.Start)
+			preSpin.Active = false
+			spin.FromX = currentX
+			-- Quint Out começa com velocidade p·distância/duração: escolhe a duração que
+			-- continua à velocidade atual (sem solavanco), dentro de limites razoáveis
+			local matched = rouletteCfg.EasingPower * math.abs(currentX - spin.ToX) / math.max(speed, 1)
+			spin.Duration = math.clamp(matched, duration * 0.6, duration * 1.3)
+		else
+			spin.FromX = ROULETTE_WIDTH / 2 - centerOf(rouletteCfg.StartIndex)
+			spin.Duration = duration
+			spin.LastIndex = rouletteCfg.StartIndex - 1
+			strip.Position = UDim2.fromOffset(spin.FromX, 12)
+		end
 		spin.Start = os.clock()
-		spin.LastIndex = rouletteCfg.StartIndex - 1
-		strip.Position = UDim2.fromOffset(spin.FromX, 12)
+		-- t^4·(1−t) tem o máximo 0.082 em t = 0.8: passa OVERSHOOT_PX da carta e volta
+		spin.Overshoot = OVERSHOOT_PX / (0.082 * math.max(math.abs(spin.FromX - spin.ToX), 1))
 
 		local winner = stripCards[rouletteCfg.WinnerIndex]
 		spin.OnDone = function()
@@ -1131,15 +1264,38 @@ function CrateRevealView.Mount()
 		shrink:Play()
 	end
 
-	local function playGrid(token: number, result: CrateResult)
-		local crate = ArtistCalc.GetCrate(result.CrateId)
-		local order = CrateAnimCalc.GetRevealOrder(result.Items)
+	-- As cartas viradas entram em cascata, de baixo e a crescer com mola
+	local function gridEntrance(count: number, crate: CrateDef?)
+		local fast = CrateAnimController.IsFast()
+		local stagger = if fast then 0.02 else 0.04
+		local duration = if fast then 0.3 else 0.42
 		for index, card in gridCards do
-			card.Outer.Visible = index <= #order
+			card.Outer.Visible = index <= count
 			card.Inner.Size = UDim2.fromScale(1, 1)
+			card.Inner.Rotation = 0
 			setCardBack(card, crate)
+			card.Inner.Position = UDim2.new(0.5, 0, 0.5, 90)
+			card.Scale.Scale = 0.5
+			local info = TweenInfo.new(duration, Enum.EasingStyle.Back, Enum.EasingDirection.Out, 0, false, (index - 1) * stagger)
+			TweenService:Create(card.Inner, info, { Position = UDim2.fromScale(0.5, 0.5) }):Play()
+			TweenService:Create(card.Scale, info, { Scale = 1 }):Play()
 		end
 		grid.Visible = true
+	end
+
+	-- continuing: as cartas já entraram (antecipadas) e estavam a tremer à espera
+	local function playGrid(token: number, result: CrateResult, continuing: boolean)
+		local crate = ArtistCalc.GetCrate(result.CrateId)
+		local order = CrateAnimCalc.GetRevealOrder(result.Items)
+		if continuing then
+			for index, card in gridCards do
+				card.Outer.Visible = index <= #order
+				card.Inner.Rotation = 0
+			end
+			grid.Visible = true
+		else
+			gridEntrance(#order, crate)
+		end
 		local gridCfg = CrateAnimConfig.Grid
 		local step = if CrateAnimController.IsFast() then gridCfg.FastRevealStep else gridCfg.RevealStep
 		for slot, itemIndex in order do
@@ -1157,6 +1313,7 @@ function CrateRevealView.Mount()
 					local effect: RevealEffect = effectFor(item)
 					local rarity = RaritiesConfig.ById[item.Rarity] or RaritiesConfig.List[1]
 					if effect == "Simple" then
+						Components.bump(card.Scale, 1.1)
 						CrateSfx.Play("CrateTick")
 					else
 						applyStopEffect(card, effect, rarity)
@@ -1195,13 +1352,25 @@ function CrateRevealView.Mount()
 		if not result then
 			return
 		end
+		-- O resultado é o da abertura antecipada? Então continua a animação já em curso
+		local continuing = pendingCrate == result.CrateId
+			and pendingCount == #result.Items
+			and not result.Preview
+			and not result.CinematicOnly
+			and not result.Auto
+		pendingCrate = nil
+		if not continuing then
+			preSpin.Active = false
+		end
 		busy = true
 		currentResult = result
 		open()
 		playToken += 1
 		local token = playToken
-		roulette.Visible = false
-		grid.Visible = false
+		if not continuing then
+			roulette.Visible = false
+			grid.Visible = false
+		end
 		resultPanel.Visible = false
 		buttons.Visible = false
 		pulseLabel = nil
@@ -1219,15 +1388,78 @@ function CrateRevealView.Mount()
 				finishPlay(token, result)
 			end)
 		elseif #result.Items <= 1 then
-			playRoulette(token, result)
+			playRoulette(token, result, continuing)
 		else
-			playGrid(token, result)
+			playGrid(token, result, continuing)
 		end
+	end
+
+	-- Resposta imediata ao clique: abre já o painel e começa a animar com cartas de
+	-- enchimento (probabilidades reais da crate). Quando o resultado chega, playNext
+	-- continua daí. Sem resposta em PENDING_TIMEOUT s, desiste e volta ao menu.
+	local function anticipate(crateId: string, count: number)
+		local crate = ArtistCalc.GetCrate(crateId)
+		if not crate or busy or CrateAnimController.HasQueued() or CrateCinematicController.IsPlaying() then
+			return
+		end
+		pendingToken += 1
+		local token = pendingToken
+		pendingCrate = crateId
+		pendingCount = count
+		open()
+		playToken += 1 -- cancela os "later" do resultado anterior
+		roulette.Visible = false
+		grid.Visible = false
+		resultPanel.Visible = false
+		buttons.Visible = false
+		pulseLabel = nil
+		pulseStroke = nil
+		table.clear(shimmers)
+		shinyBanner.Visible = false
+		clearPortrait()
+		title.Text = crate.Name
+		title.TextColor3 = crate.Color
+
+		if count <= 1 then
+			-- Cartas periódicas: a roleta pode dar voltas enquanto espera sem se notar
+			local filler = CrateAnimCalc.BuildFiller(rng, crate, PRESPIN_PERIOD)
+			local span = math.min(#stripCards, rouletteCfg.StartIndex + PRESPIN_PERIOD + math.ceil(ROULETTE_WIDTH / pitch) + 2)
+			for index = 1, span do
+				local card = filler[(index - 1) % PRESPIN_PERIOD + 1]
+				if card then
+					setCardContent(stripCards[index], crate, card.ArtistId, card.Rarity, false)
+				end
+			end
+			resetFocus()
+			local duration = if CrateAnimController.IsFastSetting() then rouletteCfg.FastDuration else rouletteCfg.Duration
+			local distance = (rouletteCfg.WinnerIndex - rouletteCfg.StartIndex) * pitch
+			preSpin.Velocity = rouletteCfg.EasingPower * distance / duration
+			preSpin.FromX = ROULETTE_WIDTH / 2 - ((rouletteCfg.StartIndex - 1) * pitch + rouletteCfg.CardWidth / 2)
+			preSpin.Start = os.clock()
+			preSpin.Active = true
+			spin.LastIndex = rouletteCfg.StartIndex - 1
+			strip.Position = UDim2.fromOffset(preSpin.FromX, 12)
+			roulette.Visible = true
+		else
+			gridEntrance(count, crate)
+		end
+
+		task.delay(PENDING_TIMEOUT, function()
+			if pendingToken == token and pendingCrate ~= nil then
+				pendingCrate = nil
+				preSpin.Active = false
+				close(false)
+				ArtistsView.Open("Crates")
+			end
+		end)
 	end
 
 	-- Ligações -------------------------------------------------------------------------
 	trove:Add(CrateAnimController.ResultQueued:Connect(function()
 		playNext()
+	end))
+	trove:Add(CrateAnimController.Anticipated:Connect(function(crateId: string, count: number)
+		anticipate(crateId, count)
 	end))
 	trove:Connect(continueButton.Activated, function()
 		close(false)
@@ -1240,6 +1472,7 @@ function CrateRevealView.Mount()
 		end
 		if ArtistController.OpenCrate(result.CrateId, #result.Items) then
 			againButton.Visible = false
+			anticipate(result.CrateId, #result.Items)
 		else
 			againButton.Rotation = 4
 			TweenService:Create(againButton, TweenInfo.new(0.3, Enum.EasingStyle.Elastic), { Rotation = 0 }):Play()
