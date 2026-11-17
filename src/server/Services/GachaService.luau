@@ -32,6 +32,8 @@ local Signal = require(ReplicatedStorage.Shared.Util.Signal)
 local CrateAnimConfig = require(ReplicatedStorage.Shared.Config.CrateAnimation)
 local ArtistCalc = require(ReplicatedStorage.Shared.Calc.ArtistCalc)
 local CrateAnimCalc = require(ReplicatedStorage.Shared.Calc.CrateAnimCalc)
+local VariantCalc = require(ReplicatedStorage.Shared.Calc.VariantCalc)
+local IndexCalc = require(ReplicatedStorage.Shared.Calc.IndexCalc)
 local StageCalc = require(ReplicatedStorage.Shared.Calc.StageCalc)
 local PrestigeCalc = require(ReplicatedStorage.Shared.Calc.PrestigeCalc)
 local ServerNet = require(script.Parent.Parent.Net.ServerNet)
@@ -48,7 +50,6 @@ type CrateResult = Types.CrateResult
 type CrateSummon = Types.CrateSummon
 type ProfileData = Types.ProfileData
 
-local PROMPT_NAME = "CrateStationPrompt"
 
 local GachaService = {}
 
@@ -209,13 +210,27 @@ function GachaService.Pull(player: Player, crate: Types.CrateDef, count: number)
 	for _ = 1, count do
 		local rarity = rollWithPity(data, crate, skills.PityReduction)
 		local artist = ArtistCalc.RollCrateArtist(rng, crate)
+		local variant = VariantCalc.Roll(rng)
+		-- "NOVO!": primeira vez que obtém esta combinação ou esta variante
+		local knownCombo = data.Index.Discovered[IndexCalc.Key(artist.Id, rarity.Id)] == true
+		local knownVariant = variant == "" or data.Index.Variants[IndexCalc.VariantKey(artist.Id, variant)] == true
 		local item: CrateItem
-		if ArtistService.IsAutoDeleted(player, rarity.Id) then
+		if ArtistService.IsAutoDeleted(player, rarity.Id, variant) then
+			-- Apagado, mas conta como descoberto no Índice
+			ArtistService.MarkDiscovered(player, artist.Id, rarity.Id)
+			ArtistService.MarkVariantDiscovered(player, artist.Id, variant)
 			item = { ArtistId = artist.Id, Rarity = rarity.Id, Uid = nil, Outcome = "Deleted" }
 		else
-			local uid = ArtistService.AddArtist(player, artist.Id, rarity.Id)
+			local uid = ArtistService.AddArtist(player, artist.Id, rarity.Id, 1, variant)
 			item = { ArtistId = artist.Id, Rarity = rarity.Id, Uid = uid, Outcome = "New" }
+			local added = if uid then data.Artists[uid] else nil
+			if added then
+				item.Trait, item.TraitTier = added.Trait, added.TraitTier
+			end
 		end
+		item.Variant = variant
+		item.New = not knownCombo or not knownVariant
+		item.IndexHave, item.IndexTotal = IndexCalc.GetProgress(data.Index.Discovered, rarity.Id)
 		table.insert(items, item)
 	end
 
@@ -242,6 +257,11 @@ function GachaService.Pull(player: Player, crate: Types.CrateDef, count: number)
 		local def = ArtistCalc.GetArtist(item.ArtistId)
 		if not item.Mystery and slot and slot >= ArtistsConfig.AnnounceFromSlot and rarity and def then
 			announce(string.format("%s tirou %s · %s!", player.DisplayName, def.Name, rarity.Name), announceDelay)
+		end
+		-- Variantes Brilhantes raras: anúncio próprio
+		local variant = VariantCalc.Get(item.Variant)
+		if variant and variant.Announce and rarity and def then
+			announce(string.format("%s tirou um %s BRILHANTE %s · %s!", player.DisplayName, def.Name, variant.Name, rarity.Name), announceDelay)
 		end
 	end
 
@@ -271,7 +291,7 @@ end
 	(x10) são enchimento. Conta como cinemática vista e faz o broadcast, para testar o
 	"Saltar" e a versão leve noutro cliente.
 ]]
-function GachaService.Preview(player: Player, rarityId: string, count: number, cinematicOnly: boolean): string
+function GachaService.Preview(player: Player, rarityId: string, count: number, cinematicOnly: boolean, variantId: string?): string
 	local crate = crateForRarity(rarityId)
 	if not crate then
 		return "Nenhuma crate dá a raridade " .. rarityId .. "."
@@ -286,6 +306,8 @@ function GachaService.Preview(player: Player, rarityId: string, count: number, c
 		Rarity = rarityId,
 		Uid = nil,
 		Outcome = "Preview",
+		Variant = variantId or "",
+		New = true,
 	})
 	local data = DataService.GetProfile(player)
 	local canSkip = handleMystery(player, data, crate, items, cinematicOnly, true)
@@ -357,29 +379,6 @@ function GachaService.OpenFree(player: Player, count: number): number
 	return amount
 end
 
--- Prompts nas estações da praça (abrem o painel no cliente)
-local function createStationPrompts()
-	local map = MapService.GetMapFolder()
-	local plaza = if map then map:FindFirstChild("Plaza") else nil
-	local root = if plaza then plaza:FindFirstChild("Root") else nil
-	if not root then
-		warn("[GachaService] Praça sem Root: estações de Vinyl Crates sem prompt")
-		return
-	end
-	for _, child in root:GetChildren() do
-		if child:IsA("Attachment") and string.match(child.Name, "^CrateStation_") then
-			local prompt = Instance.new("ProximityPrompt")
-			prompt.Name = PROMPT_NAME
-			prompt.ActionText = "Abrir Vinyl Crates"
-			prompt.ObjectText = "Vinyl Crates"
-			prompt.HoldDuration = 0
-			prompt.MaxActivationDistance = 12
-			prompt.RequiresLineOfSight = false
-			prompt.Parent = child
-		end
-	end
-end
-
 function GachaService.Init()
 	ServerNet.Connect(RemoteDefs.Defs.OpenCrate, function(player: Player, crateArg: unknown, countArg: unknown)
 		local ok, message = GachaService.Open(player, crateArg :: string, countArg :: number)
@@ -398,7 +397,6 @@ end
 
 function GachaService.Start()
 	publishArtistRigs()
-	createStationPrompts()
 end
 
 return GachaService

@@ -156,6 +156,7 @@ function StageArtistService.Refresh(player: Player)
 			rig:SetAttribute("ArtistId", artist.Id)
 			rig:SetAttribute("Rarity", artist.Rarity)
 			rig:SetAttribute("Stars", artist.Stars)
+			rig:SetAttribute("Variant", artist.Variant) -- visual da variante aplicado no cliente
 			rig:SetAttribute("OwnerUserId", player.UserId)
 			decorate(rig, artist)
 			rig:PivotTo(attachment.WorldCFrame * CFrame.new(0, footOffset(rig), 0))

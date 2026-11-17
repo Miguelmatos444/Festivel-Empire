@@ -20,6 +20,8 @@ local ServerStorage = game:GetService("ServerStorage")
 local Types = require(ReplicatedStorage.Shared.Types)
 local MapConfig = require(ReplicatedStorage.Shared.Config.Map)
 local ArtistsConfig = require(ReplicatedStorage.Shared.Config.Artists)
+local ShowcaseConfig = require(ReplicatedStorage.Shared.Config.Showcase)
+local CrystalsConfig = require(ReplicatedStorage.Shared.Config.Crystals)
 local StagesConfig = require(ReplicatedStorage.Shared.Config.Stages)
 local MapCalc = require(ReplicatedStorage.Shared.Calc.MapCalc)
 
@@ -348,11 +350,36 @@ function Placeholders.BuildPlaza(): Model
 		addAttachment(root, "CrateDisplay_" .. index, box.Position)
 	end
 
-	for index, angle in plaza.CrateStationAngles do
-		local cframe = MapCalc.PlazaPoint(angle, plaza.CrateStationRadius, 0.65)
-		Placeholders.NewPart("CratePad_" .. index, Vector3.new(10, 0.5, 10), cframe, Color3.fromRGB(255, 209, 102), Enum.Material.Neon, visual)
-		addAttachment(root, "CrateStation_" .. index, cframe.Position + Vector3.new(0, 0.25, 0))
-	end
+
+	-- Estúdio de Remix (Fase 13B): plataforma, coluna e disco holográfico gigante por cima.
+	-- O disco grava "BaseCFrame" para o cliente o rodar; o prompt fica no Attachment "RemixStudio".
+	local studio = CrystalsConfig.Studio
+	local studioBase = MapCalc.PlazaPoint(studio.Angle, studio.Radius, 0)
+	local purple = Color3.fromRGB(170, 90, 255)
+	Placeholders.NewDisc("RemixRing", studio.PlatformRadius * 2 + 1.5, 0.6, studioBase.Position + Vector3.new(0, 0.3, 0), purple, Enum.Material.Neon, visual)
+	Placeholders.NewDisc("RemixPlatform", studio.PlatformRadius * 2, 0.8, studioBase.Position + Vector3.new(0, 0.4, 0), Color3.fromRGB(30, 20, 55), Enum.Material.Marble, visual)
+	Placeholders.NewPart(
+		"RemixPillar",
+		Vector3.new(1.4, studio.DiscHeight - 1, 1.4),
+		CFrame.new(studioBase.Position + Vector3.new(0, 0.8 + (studio.DiscHeight - 1) / 2, 0)),
+		purple,
+		Enum.Material.Neon,
+		visual
+	)
+	local disc = Placeholders.NewDisc(
+		"RemixDisc",
+		studio.DiscDiameter,
+		0.6,
+		studioBase.Position + Vector3.new(0, studio.DiscHeight, 0),
+		Color3.fromRGB(200, 140, 255),
+		Enum.Material.Neon,
+		visual
+	)
+	disc.Transparency = 0.3
+	disc.CanCollide = false
+	disc:SetAttribute("BaseCFrame", disc.CFrame)
+	addBillboard(disc, "ESTÚDIO DE REMIX", Color3.fromRGB(220, 180, 255), Vector2.new(16, 3), 4)
+	addAttachment(root, "RemixStudio", studioBase.Position + Vector3.new(0, 0.8, 0))
 
 	for index, angle in plaza.LeaderboardAngles do
 		local cframe = MapCalc.PlazaPoint(angle, plaza.LeaderboardRadius, 6.4)
@@ -380,6 +407,27 @@ function Placeholders.BuildSign(): Model
 		Placeholders.NewPart("Post", Vector3.new(1, 8, 1), CFrame.new(side * 7, 4, 0), Color3.fromRGB(60, 60, 64), Enum.Material.Metal, visual)
 	end
 	Placeholders.NewPart("Board", Vector3.new(16, 6, 0.5), CFrame.new(0, 7, 0), Color3.fromRGB(34, 20, 70), Enum.Material.SmoothPlastic, visual)
+	return model
+end
+
+-- Pedestal da vitrine -------------------------------------------------------------------
+-- Origem = base do pedestal, ao centro, no chão. Attachment "ArtistSpot" no topo.
+function Placeholders.BuildShowcasePedestal(): Model
+	local height = ShowcaseConfig.PedestalHeight
+	local model = Instance.new("Model")
+	model.Name = "Pedestal"
+	local root = makeRoot(model, Vector3.new(7, height, 7), CFrame.new(0, height / 2, 0))
+
+	local visual = Instance.new("Model")
+	visual.Name = "Visual"
+	visual.Parent = model
+
+	local stone = Color3.fromRGB(40, 32, 70)
+	Placeholders.NewDisc("Base", 7, 0.6, Vector3.new(0, 0.3, 0), Color3.fromRGB(30, 24, 52), Enum.Material.Marble, visual)
+	Placeholders.NewDisc("Column", 5, height - 1.2, Vector3.new(0, 0.6 + (height - 1.2) / 2, 0), stone, Enum.Material.Marble, visual)
+	Placeholders.NewDisc("Ring", 5.4, 0.25, Vector3.new(0, height - 0.75, 0), Color3.fromRGB(255, 209, 102), Enum.Material.Neon, visual)
+	Placeholders.NewDisc("Top", 6.2, 0.6, Vector3.new(0, height - 0.3, 0), Color3.fromRGB(30, 24, 52), Enum.Material.Marble, visual)
+	addAttachment(root, "ArtistSpot", Vector3.new(0, height, 0))
 	return model
 end
 
@@ -584,6 +632,11 @@ function Placeholders.ExportAll(): number
 	end
 	if not assets:FindFirstChild("PlotSign") then
 		Placeholders.BuildSign().Parent = assets
+		created += 1
+	end
+	local showcase = getOrCreateFolder(assets, "Showcase")
+	if not showcase:FindFirstChild("Pedestal") then
+		Placeholders.BuildShowcasePedestal().Parent = showcase
 		created += 1
 	end
 	local prestige = getOrCreateFolder(assets, "Prestige")

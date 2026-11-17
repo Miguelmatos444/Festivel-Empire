@@ -14,6 +14,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local MapConfig = require(ReplicatedStorage.Shared.Config.Map)
+local ArtistIndexConfig = require(ReplicatedStorage.Shared.Config.ArtistIndex)
 local RemoteDefs = require(ReplicatedStorage.Shared.Net.RemoteDefs)
 local Signal = require(ReplicatedStorage.Shared.Util.Signal)
 local Trove = require(ReplicatedStorage.Shared.Util.Trove)
@@ -146,6 +147,10 @@ function PlotService.RefreshSign(index: number)
 			then string.rep("★", math.min(data.WorldTours, 5)) .. " World Tour " .. data.WorldTours .. " · "
 			else ""
 		subtitle.Text = string.format("%sTier %d · %s · Era %s", tours, def.Tier, def.Name, def.Era)
+		-- Título do prémio final do Índice
+		if data.Index.Claimed[ArtistIndexConfig.FinalKey] then
+			title.Text = string.format("%s · %s", ArtistIndexConfig.Final.Title, owner.DisplayName)
+		end
 	else
 		subtitle.Text = "A preparar o palco…"
 	end

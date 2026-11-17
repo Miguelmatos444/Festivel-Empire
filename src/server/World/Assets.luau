@@ -250,4 +250,23 @@ function Assets.GetSignTemplate(): Model
 	return cached
 end
 
+-- Pedestal da vitrine: ServerStorage/Assets/Showcase/Pedestal (Model com Root; Attachment
+-- "ArtistSpot" no Root = onde fica o artista, senão usa o topo do Root)
+function Assets.GetShowcasePedestalTemplate(): Model
+	local custom = findAsset({ "Showcase", "Pedestal" })
+	if custom then
+		if Assets.GetRoot(custom) then
+			anchorAll(custom)
+			return custom
+		end
+		warnOnce("Showcase:Pedestal", "Showcase/Pedestal: sem 'Root' (BasePart) — a usar o placeholder.")
+	end
+	local cached = cache.ShowcasePedestal
+	if not cached then
+		cached = Placeholders.BuildShowcasePedestal()
+		cache.ShowcasePedestal = cached
+	end
+	return cached
+end
+
 return table.freeze(Assets)

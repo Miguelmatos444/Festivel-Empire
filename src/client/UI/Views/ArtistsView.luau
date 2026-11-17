@@ -10,12 +10,11 @@
 	             detalhe com bónus e habilidades, equipar/desequipar, cadeado, fundir,
 	             Fundir tudo, Auto-Fuse e Auto-Delete ("apagar até…")
 	Abre com o botão "ARTISTAS" (canto superior direito), tecla K, D-pad ↑ do comando,
-	pelos prompts das estações de Vinyl Crates na praça, ou ao pisar a Zona das Crates
+	ou ao pisar a Zona das Crates
 	no centro (fecha ao sair, se foi a zona a abri-lo e ainda estiver em CRATES).
 ]]
 
 local Players = game:GetService("Players")
-local ProximityPromptService = game:GetService("ProximityPromptService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
@@ -35,6 +34,10 @@ local StateController = require(Client.Controllers.StateController)
 local ArtistController = require(Client.Controllers.ArtistController)
 local CrateZoneController = require(Client.Controllers.CrateZoneController)
 local CrateAnimController = require(Client.Controllers.CrateAnimController)
+local VariantCalc = require(ReplicatedStorage.Shared.Calc.VariantCalc)
+local TraitCalc = require(ReplicatedStorage.Shared.Calc.TraitCalc)
+local VariantsConfig = require(ReplicatedStorage.Shared.Config.Variants)
+local IndexController = require(Client.Controllers.IndexController)
 local Theme = require(script.Parent.Parent.Theme)
 local Components = require(script.Parent.Parent.Components)
 local ModalManager = require(script.Parent.Parent.ModalManager)
@@ -65,7 +68,6 @@ local DETAILS_HEIGHT = 118
 local STAGE_ROW_Y = 72
 local STAGE_ROW_HEIGHT = 68
 local GRID_Y = STAGE_ROW_Y + STAGE_ROW_HEIGHT + 8
-local PROMPT_NAME = "CrateStationPrompt"
 local TOGGLE_KEY = Enum.KeyCode.K
 local TOGGLE_GAMEPAD = Enum.KeyCode.DPadUp
 local CRATE_REVEAL_MODAL = "CrateReveal" -- nome registado pela CrateRevealView
@@ -171,6 +173,9 @@ local function effectsSummary(sync: ArtistsSync): string
 	end
 	if effects.BoostBonus > 0 then
 		table.insert(parts, string.format("Boost +%.1fs", effects.BoostBonus))
+	end
+	if effects.PassiveBonus > 0 then
+		table.insert(parts, string.format("Passivo +%d%%", math.floor(effects.PassiveBonus * 100 + 0.5)))
 	end
 	if effects.CooldownCut > 0 then
 		table.insert(parts, string.format("Cooldowns −%d%%", math.floor(effects.CooldownCut * 100 + 0.5)))
@@ -408,6 +413,22 @@ function ArtistsView.Mount()
 	oddsPity.ZIndex = 31
 	oddsPity.Parent = odds
 
+	local oddsVariants = Components.makeLabel("Variants", Theme.Fonts.Body, Theme.Colors.Highlight, 14)
+	oddsVariants.Position = UDim2.new(0, 40, 0, 46 + 6 * 44 + 80)
+	oddsVariants.Size = UDim2.new(1, -80, 0, 40)
+	oddsVariants.TextWrapped = true
+	oddsVariants.TextXAlignment = Enum.TextXAlignment.Left
+	oddsVariants.TextYAlignment = Enum.TextYAlignment.Top
+	oddsVariants.ZIndex = 31
+	do
+		local parts: { string } = {}
+		for _, variant in VariantsConfig.List do
+			table.insert(parts, string.format("%s 1/%d", variant.Name, variant.Chance))
+		end
+		oddsVariants.Text = string.format("Variantes Brilhantes (cada artista, %.2f%% no total): %s", VariantCalc.GetAnyChance() * 100, table.concat(parts, " · "))
+	end
+	oddsVariants.Parent = odds
+
 	local oddsClose = textButton("Close", "FECHAR", Theme.Colors.Accent, UDim2.fromOffset(220, 48))
 	oddsClose.AnchorPoint = Vector2.new(0.5, 1)
 	oddsClose.Position = UDim2.new(0.5, 0, 1, -12)
@@ -587,7 +608,7 @@ function ArtistsView.Mount()
 
 	local slotsLabel = Components.makeLabel("Slots", Theme.Fonts.Display, Theme.Colors.Gold, 18)
 	slotsLabel.LayoutOrder = 1
-	slotsLabel.Size = UDim2.fromOffset(150, 34)
+	slotsLabel.Size = UDim2.fromOffset(112, 34)
 	slotsLabel.TextXAlignment = Enum.TextXAlignment.Left
 	slotsLabel.Parent = topBar
 
@@ -595,13 +616,18 @@ function ArtistsView.Mount()
 	autoFuseButton.LayoutOrder = 2
 	autoFuseButton.Parent = topBar
 
-	local autoDeleteButton = textButton("AutoDelete", "Auto-Delete: OFF", Theme.Colors.Background, UDim2.fromOffset(190, 36))
+	local autoDeleteButton = textButton("AutoDelete", "Auto-Delete: OFF", Theme.Colors.Background, UDim2.fromOffset(170, 36))
 	autoDeleteButton.LayoutOrder = 3
 	autoDeleteButton.Parent = topBar
 
-	local fuseAllButton = textButton("FuseAll", "FUNDIR TUDO", Theme.Colors.Accent, UDim2.fromOffset(150, 36))
+	local fuseAllButton = textButton("FuseAll", "FUNDIR TUDO", Theme.Colors.Accent, UDim2.fromOffset(130, 36))
 	fuseAllButton.LayoutOrder = 4
 	fuseAllButton.Parent = topBar
+
+	-- O Auto-Delete nunca apaga variantes Brilhantes, salvo se o jogador ligar isto
+	local variantsButton = textButton("Variants", "🛡 Brilhantes", Theme.Colors.Background, UDim2.fromOffset(112, 36))
+	variantsButton.LayoutOrder = 5
+	variantsButton.Parent = topBar
 
 	local effectsLabel = Components.makeLabel("Effects", Theme.Fonts.Body, Theme.Colors.Highlight, 14)
 	effectsLabel.Position = UDim2.fromOffset(18, 48)
@@ -692,7 +718,7 @@ function ArtistsView.Mount()
 	detailText.Name = "Text"
 	detailText.BackgroundTransparency = 1
 	detailText.Position = UDim2.fromOffset(14, 36)
-	detailText.Size = UDim2.new(1, -260, 1, -42)
+	detailText.Size = UDim2.new(1, -380, 1, -42)
 	detailText.Font = Theme.Fonts.Body
 	detailText.TextSize = 14
 	detailText.TextWrapped = true
@@ -716,6 +742,12 @@ function ArtistsView.Mount()
 	fuseButton.AnchorPoint = Vector2.new(1, 1)
 	fuseButton.Position = UDim2.new(1, -10, 1, -10)
 	fuseButton.Parent = details
+
+	-- Vitrine: põe/tira este artista do pedestal à frente do terreno
+	local showcaseButton = textButton("Showcase", "VITRINE", Theme.Colors.Highlight, UDim2.fromOffset(112, 44))
+	showcaseButton.AnchorPoint = Vector2.new(1, 1)
+	showcaseButton.Position = UDim2.new(1, -246, 1, -10)
+	showcaseButton.Parent = details
 
 	-- Estado / desenho ---------------------------------------------------------
 	local currentTab: Tab = "Crates"
@@ -780,6 +812,7 @@ function ArtistsView.Mount()
 		equipButton.Visible = artist ~= nil
 		lockButton.Visible = artist ~= nil
 		fuseButton.Visible = artist ~= nil
+		showcaseButton.Visible = artist ~= nil
 		if not uid or not artist then
 			detailName.Text = "Detalhe"
 			detailText.Text = "Seleciona um artista para ver o detalhe."
@@ -791,6 +824,11 @@ function ArtistsView.Mount()
 		detailName.TextColor3 = rarity.Color
 
 		local lines = { string.format("Bónus de Hype: +%s%%", NumberFormatter.format(ArtistCalc.GetBonus(artist) * 100)) }
+		local variant = VariantCalc.Get(artist.Variant)
+		if variant then
+			table.insert(lines, string.format("Variante Brilhante: %s (+%d%% ao bónus)", variant.Name, math.floor(variant.Bonus * 100 + 0.5)))
+		end
+		table.insert(lines, "Traço: " .. TraitCalc.Describe(artist.Trait, artist.TraitTier) .. "  (uid " .. uid .. ")")
 		for _, ability in ArtistCalc.GetAbilities(artist) do
 			table.insert(lines, ArtistCalc.DescribeAbility(ability))
 		end
@@ -821,6 +859,11 @@ function ArtistsView.Mount()
 			elseif #sync.Equipped < sync.Slots then Theme.Colors.Success
 			else Theme.Colors.Disabled
 		lockButton.Text = if artist.Locked then "🔒 PROTEGIDO" else "🔓 LIVRE"
+		local index = IndexController.Get()
+		local onShowcase = index ~= nil and index.ShowcaseUid == uid
+		local manual = onShowcase and index ~= nil and index.Showcase.Mode == "Manual"
+		showcaseButton.Text = if manual then "✓ VITRINE" elseif onShowcase then "VITRINE (AUTO)" else "VITRINE"
+		showcaseButton.BackgroundColor3 = if manual then Theme.Colors.Success else Theme.Colors.Highlight
 	end
 
 	local gridTrove = trove:Extend() -- tiles e ligações da grelha, limpos a cada reconstrução
@@ -881,6 +924,12 @@ function ArtistsView.Mount()
 			end
 			if artist.Locked then
 				table.insert(tags, "🔒")
+			end
+			local variant = VariantCalc.Get(artist.Variant)
+			if variant then
+				table.insert(tags, "★" .. variant.Name)
+				stroke.Color = if uid == selectedUid then Theme.Colors.Gold else variant.Color
+				stroke.Thickness = 3
 			end
 			local tagLabel = Components.makeLabel("Tags", Theme.Fonts.Body, Theme.Colors.Success, 12)
 			tagLabel.Position = UDim2.fromOffset(4, 92)
@@ -946,6 +995,8 @@ function ArtistsView.Mount()
 		autoFuseButton.BackgroundColor3 = if sync.AutoFuse then Theme.Colors.Success else Theme.Colors.Background
 		autoDeleteButton.Text = autoDeleteLabel(sync.AutoDeleteUpTo)
 		autoDeleteButton.BackgroundColor3 = if sync.AutoDeleteUpTo > 0 then Theme.Colors.Danger else Theme.Colors.Background
+		variantsButton.Text = if sync.AutoDeleteVariants then "🗑 Brilhantes" else "🛡 Brilhantes"
+		variantsButton.BackgroundColor3 = if sync.AutoDeleteVariants then Theme.Colors.Danger else Theme.Colors.Success
 		effectsLabel.Text = effectsSummary(sync)
 		refreshDetails(sync)
 	end
@@ -990,6 +1041,18 @@ function ArtistsView.Mount()
 		end
 		ArtistController.Fuse(uid)
 	end)
+	trove:Connect(showcaseButton.Activated, function()
+		local uid = selectedUid
+		if not uid then
+			return
+		end
+		local index = IndexController.Get()
+		local manualHere = index ~= nil and index.Showcase.Mode == "Manual" and index.Showcase.Uid == uid
+		local ok = if manualHere then IndexController.SetShowcase("Auto") else IndexController.SetShowcase("Manual", uid)
+		if not ok then
+			shake(showcaseButton)
+		end
+	end)
 	trove:Connect(fuseAllButton.Activated, function()
 		ArtistController.Fuse("all")
 	end)
@@ -1004,6 +1067,12 @@ function ArtistsView.Mount()
 		local sync = ArtistController.Get()
 		if sync then
 			ArtistController.SetAutoFuse(not sync.AutoFuse)
+		end
+	end)
+	trove:Connect(variantsButton.Activated, function()
+		local sync = ArtistController.Get()
+		if sync then
+			ArtistController.SetAutoDeleteVariants(not sync.AutoDeleteVariants)
 		end
 	end)
 	trove:Connect(autoDeleteButton.Activated, function()
@@ -1086,12 +1155,6 @@ function ArtistsView.Mount()
 			setOpen(not isOpen)
 		end
 	end)
-	trove:Connect(ProximityPromptService.PromptTriggered, function(prompt: ProximityPrompt, player: Player)
-		if prompt.Name == PROMPT_NAME and player == Players.LocalPlayer then
-			setTab("Crates")
-			setOpen(true)
-		end
-	end)
 
 	-- Zona das Crates: abre ao entrar; fecha ao sair só se foi a zona a abrir e ainda
 	-- estiver em CRATES. Fechar à mão dentro da zona não reabre até sair e voltar.
@@ -1113,6 +1176,13 @@ function ArtistsView.Mount()
 		openedByZone = false
 	end))
 
+	-- A vitrine mudou (botão VITRINE no detalhe)
+	trove:Add(IndexController.Changed:Connect(function()
+		local sync = ArtistController.Get()
+		if sync and isOpen and currentTab == "Collection" then
+			refreshDetails(sync)
+		end
+	end))
 	trove:Add(ArtistController.Changed:Connect(function(_sync: ArtistsSync)
 		refreshCollection()
 		if isOpen and currentTab == "Crates" then

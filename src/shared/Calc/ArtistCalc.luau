@@ -11,6 +11,8 @@ local Types = require(script.Parent.Parent.Types)
 local ArtistsConfig = require(script.Parent.Parent.Config.Artists)
 local RaritiesConfig = require(script.Parent.Parent.Config.Rarities)
 local PyroConfig = require(script.Parent.Parent.Config.Pyro)
+local VariantCalc = require(script.Parent.VariantCalc)
+local TraitCalc = require(script.Parent.TraitCalc)
 
 type ArtistData = Types.ArtistData
 type ArtistDef = Types.ArtistDef
@@ -52,13 +54,19 @@ function ArtistCalc.IsValid(data: ArtistData): boolean
 		and data.Stars >= 1
 		and data.Stars <= ArtistsConfig.MaxStars
 		and data.Stars % 1 == 0
+		and type(data.Variant) == "string"
+		and VariantCalc.IsValid(data.Variant)
+		and type(data.Trait) == "string"
+		and type(data.TraitTier) == "string"
+		and TraitCalc.IsValid(data.Trait, data.TraitTier)
 end
 
 local function starIndex(stars: number): number
 	return math.clamp(math.floor(stars), 1, ArtistsConfig.MaxStars)
 end
 
--- Bónus de Hype próprio (sem Aura): raridade × era da crate × estrelas
+-- Bónus de Hype próprio (sem Aura): raridade × era da crate × estrelas × variante Brilhante
+-- × traço Voz Potente
 function ArtistCalc.GetBonus(data: ArtistData): number
 	local rarity = RaritiesConfig.ById[data.Rarity]
 	local def = ArtistsConfig.ById[data.Id]
@@ -66,7 +74,9 @@ function ArtistCalc.GetBonus(data: ArtistData): number
 	if not rarity or not crate then
 		return 0
 	end
-	return rarity.Bonus * crate.EraFactor * ArtistsConfig.StarBonus[starIndex(data.Stars)]
+	local trait = TraitCalc.Get(data.Trait)
+	local voice = if trait and trait.Kind == "ArtistHype" then TraitCalc.GetValue(data.Trait, data.TraitTier) else 0
+	return rarity.Bonus * crate.EraFactor * ArtistsConfig.StarBonus[starIndex(data.Stars)] * VariantCalc.GetMultiplier(data.Variant) * (1 + voice)
 end
 
 -- Habilidades ----------------------------------------------------------------
@@ -161,6 +171,8 @@ function ArtistCalc.EmptyEffects(): ArtistEffects
 		AutoPyroMask = 0,
 		FullShow = false,
 		SaveDrops = {},
+		PassiveBonus = 0,
+		MachineCut = {},
 	}
 end
 
@@ -213,6 +225,22 @@ function ArtistCalc.ComputeEffects(artists: { [string]: ArtistData }, equipped: 
 					table.insert(effects.SaveDrops, save)
 				end
 			end
+			-- Traço (Voz Potente já entrou no GetBonus)
+			local trait = TraitCalc.Get(data.Trait)
+			if trait then
+				local value = TraitCalc.GetValue(data.Trait, data.TraitTier)
+				if trait.Kind == "ClickPower" then
+					effects.ClickBonus += value
+				elseif trait.Kind == "Energy" then
+					effects.EnergyBonus += value
+				elseif trait.Kind == "BoostExtend" then
+					effects.BoostBonus += value
+				elseif trait.Kind == "PassiveHype" then
+					effects.PassiveBonus += value
+				elseif trait.Kind == "MachineCooldown" and trait.Machine then
+					effects.MachineCut[trait.Machine] = (effects.MachineCut[trait.Machine] or 0) + value
+				end
+			end
 		end
 	end
 
@@ -227,6 +255,9 @@ function ArtistCalc.ComputeEffects(artists: { [string]: ArtistData }, equipped: 
 	effects.CooldownCut = math.min(effects.CooldownCut, caps.CooldownCut)
 	effects.BoostBonus = math.min(effects.BoostBonus, caps.BoostBonus)
 	effects.EnergyBonus = math.min(effects.EnergyBonus, caps.EnergyBonus)
+	for machine, cut in effects.MachineCut do
+		effects.MachineCut[machine] = math.min(cut, caps.CooldownCut)
+	end
 
 	-- Melhor nota primeiro, depois recarga mais curta
 	table.sort(effects.SaveDrops, function(a: SaveDropEffect, b: SaveDropEffect): boolean
@@ -241,8 +272,9 @@ end
 
 -- Slots ----------------------------------------------------------------------
 
-function ArtistCalc.GetSlotCount(worldTours: number, hasVipGamepass: boolean): number
-	local slots = ArtistsConfig.BaseSlots
+-- bonusSlots: slots permanentes extra (ex.: prémio final do Índice)
+function ArtistCalc.GetSlotCount(worldTours: number, hasVipGamepass: boolean, bonusSlots: number?): number
+	local slots = ArtistsConfig.BaseSlots + (bonusSlots or 0)
 	for _, required in ArtistsConfig.WorldTourSlots do
 		if worldTours >= required then
 			slots += 1
@@ -351,7 +383,8 @@ end
 -- Fusão ----------------------------------------------------------------------
 
 function ArtistCalc.GroupKey(data: ArtistData): string
-	return string.format("%s|%s|%d", data.Id, data.Rarity, data.Stars)
+	-- A fusão exige também a mesma variante (o resultado mantém-na)
+	return string.format("%s|%s|%d|%s", data.Id, data.Rarity, data.Stars, data.Variant or "")
 end
 
 -- Grupos fundíveis: mesmo artista + raridade + estrelas, < 3★, não protegidos

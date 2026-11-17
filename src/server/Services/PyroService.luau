@@ -72,7 +72,8 @@ function PyroService.GetUsable(player: Player, mask: number): { string }
 end
 
 -- cooldownCut: redução (0..1) vinda das habilidades dos artistas ("Montagem Rápida")
-function PyroService.StartCooldowns(player: Player, ids: { string }, cooldownCut: number?)
+-- machineCut: redução extra por máquina (traço Pirómano); o total respeita maxCut
+function PyroService.StartCooldowns(player: Player, ids: { string }, cooldownCut: number?, machineCut: { [string]: number }?, maxCut: number?)
 	local playerCooldowns = cooldowns[player]
 	if not playerCooldowns then
 		playerCooldowns = {}
@@ -83,7 +84,9 @@ function PyroService.StartCooldowns(player: Player, ids: { string }, cooldownCut
 	for _, id in ids do
 		local def = PyroConfig.ById[id]
 		if def and def.Cooldown > 0 then
-			playerCooldowns[id] = now + def.Cooldown * factor
+			local extra = if machineCut then machineCut[id] or 0 else 0
+			local machineFactor = if extra > 0 then 1 - math.clamp((cooldownCut or 0) + extra, 0, maxCut or 1) else factor
+			playerCooldowns[id] = now + def.Cooldown * machineFactor
 		end
 	end
 	changed:Fire(player)

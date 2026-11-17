@@ -22,6 +22,9 @@ local Signal = require(ReplicatedStorage.Shared.Util.Signal)
 local Trove = require(ReplicatedStorage.Shared.Util.Trove)
 local Diag = require(ReplicatedStorage.Shared.Util.Diag)
 local ArtistCalc = require(ReplicatedStorage.Shared.Calc.ArtistCalc)
+local IndexCalc = require(ReplicatedStorage.Shared.Calc.IndexCalc)
+local VariantCalc = require(ReplicatedStorage.Shared.Calc.VariantCalc)
+local TraitCalc = require(ReplicatedStorage.Shared.Calc.TraitCalc)
 local ServerNet = require(script.Parent.Parent.Net.ServerNet)
 local DataService = require(script.Parent.DataService)
 local EconomyService = require(script.Parent.EconomyService)
@@ -33,6 +36,7 @@ type ArtistsSync = Types.ArtistsSync
 type ProfileData = Types.ProfileData
 
 local SYNC_INTERVAL = 0.25
+
 local MAX_FUSE_PASSES = 10
 
 local ArtistService = {}
@@ -46,6 +50,15 @@ local fused: Signal.Signal<Player, number> = Signal.new()
 
 -- (jogador, nº de fusões) — missões e conquistas
 ArtistService.Fused = fused
+
+local discovered: Signal.Signal<Player, string> = Signal.new()
+local variantDiscovered: Signal.Signal<Player, string> = Signal.new()
+
+-- (jogador, chave "ArtistId|VariantId") — primeira vez que obtém esta variante
+ArtistService.VariantDiscovered = variantDiscovered
+
+-- (jogador, chave "ArtistId|RarityId") — primeira vez que obtém esta combinação (Índice)
+ArtistService.Discovered = discovered
 
 local trove = Trove.new()
 local effectsCache: { [Player]: ArtistEffects } = {}
@@ -73,6 +86,12 @@ end
 -- Remove entradas inválidas (DataStore) e repara equipados e contador de uids
 local function sanitize(data: ProfileData)
 	for uid, artist in data.Artists do
+		if type(artist) == "table" and type(artist.Variant) ~= "string" then
+			artist.Variant = "" -- perfis antigos: sem variante
+		end
+		if type(artist) == "table" and (type(artist.Trait) ~= "string" or type(artist.TraitTier) ~= "string") then
+			artist.Trait, artist.TraitTier = "", "" -- sem traço: só se ganha a rodar no Estúdio de Remix
+		end
 		if type(artist) ~= "table" or not ArtistCalc.IsValid(artist) then
 			data.Artists[uid] = nil
 		elseif type(artist.Locked) ~= "boolean" then
@@ -104,7 +123,24 @@ end
 
 function ArtistService.GetSlotCount(player: Player): number
 	local data = DataService.GetProfile(player)
-	return ArtistCalc.GetSlotCount(if data then data.WorldTours else 0, vipOwners[player] == true)
+	local bonus = if data then IndexCalc.GetBonusSlots(data.Index.Claimed) else 0
+	return ArtistCalc.GetSlotCount(if data then data.WorldTours else 0, vipOwners[player] == true, bonus)
+end
+
+-- Regista no Índice que o jogador obteve esta combinação (mesmo que seja logo fundida
+-- ou apagada pelo Auto-Delete). Devolve true se foi a primeira vez.
+function ArtistService.MarkDiscovered(player: Player, artistId: string, rarityId: string): boolean
+	local data = DataService.GetProfile(player)
+	if not data then
+		return false
+	end
+	local key = IndexCalc.Key(artistId, rarityId)
+	if data.Index.Discovered[key] then
+		return false
+	end
+	data.Index.Discovered[key] = true
+	discovered:Fire(player, key)
+	return true
 end
 
 local function trimEquipped(player: Player, data: ProfileData)
@@ -123,7 +159,7 @@ function ArtistService.Commit(player: Player)
 	trimEquipped(player, data)
 	local effects = ArtistCalc.ComputeEffects(data.Artists, data.EquippedArtists)
 	effectsCache[player] = effects
-	EconomyService.SetArtistModifiers(player, effects.HypeMultiplier, effects.ClickBonus)
+	EconomyService.SetArtistModifiers(player, effects.HypeMultiplier, effects.ClickBonus, effects.PassiveBonus)
 	dirty[player] = true
 	equippedChanged:Fire(player)
 end
@@ -143,8 +179,24 @@ function ArtistService.GetCount(player: Player): number
 	return count
 end
 
+-- Regista no Índice uma variante Brilhante obtida. Devolve true se foi a primeira vez.
+function ArtistService.MarkVariantDiscovered(player: Player, artistId: string, variantId: string): boolean
+	local data = DataService.GetProfile(player)
+	if not data or variantId == "" or not VariantCalc.Get(variantId) then
+		return false
+	end
+	local key = IndexCalc.VariantKey(artistId, variantId)
+	if data.Index.Variants[key] then
+		return false
+	end
+	data.Index.Variants[key] = true
+	variantDiscovered:Fire(player, key)
+	return true
+end
+
 -- Adiciona um artista (sem Commit — o chamador agrupa as alterações). Devolve o uid.
-function ArtistService.AddArtist(player: Player, artistId: string, rarityId: string, stars: number?): string?
+-- Os artistas nascem SEM traço (só se ganha a rodar no Estúdio de Remix); trait/traitTier só no debug
+function ArtistService.AddArtist(player: Player, artistId: string, rarityId: string, stars: number?, variant: string?, trait: string?, traitTier: string?): string?
 	local data = DataService.GetProfile(player)
 	if not data or not ArtistCalc.GetArtist(artistId) or not ArtistCalc.GetRarity(rarityId) then
 		return nil
@@ -156,13 +208,28 @@ function ArtistService.AddArtist(player: Player, artistId: string, rarityId: str
 		Rarity = rarityId,
 		Stars = math.clamp(stars or 1, 1, ArtistsConfig.MaxStars),
 		Locked = false,
+		Variant = if variant and VariantCalc.IsValid(variant) then variant else "",
+		Trait = "",
+		TraitTier = "",
 	}
+	local entry = data.Artists[uid]
+	if trait and traitTier and trait ~= "" and TraitCalc.IsValid(trait, traitTier) then
+		entry.Trait, entry.TraitTier = trait, traitTier
+	end
+	ArtistService.MarkDiscovered(player, artistId, rarityId)
+	if variant and variant ~= "" then
+		ArtistService.MarkVariantDiscovered(player, artistId, variant)
+	end
 	return uid
 end
 
-function ArtistService.IsAutoDeleted(player: Player, rarityId: string): boolean
+-- variant: as variantes Brilhantes só são apagadas se o jogador ligou essa opção
+function ArtistService.IsAutoDeleted(player: Player, rarityId: string, variant: string?): boolean
 	local data = DataService.GetProfile(player)
 	if not data then
+		return false
+	end
+	if variant and variant ~= "" and not data.Settings.AutoDeleteVariants then
 		return false
 	end
 	local upTo = math.min(data.Settings.AutoDeleteUpTo, ArtistsConfig.AutoDeleteMaxIndex)
@@ -259,7 +326,8 @@ end
 -- Fusão ------------------------------------------------------------------------
 
 -- Funde um grupo (uids com a mesma chave). Equipados ficam como "keeper"; consumidos saem do fim.
-local function fuseGroup(data: ProfileData, uids: { string }, consumed: { [string]: boolean }): number
+-- O resultado fica com o MELHOR traço dos 3 e o jogador ganha Cristais. Devolve (fusões, Cristais).
+local function fuseGroup(data: ProfileData, uids: { string }, consumed: { [string]: boolean }): (number, number)
 	local ordered: { string } = {}
 	for _, uid in uids do
 		if table.find(data.EquippedArtists, uid) then
@@ -273,10 +341,16 @@ local function fuseGroup(data: ProfileData, uids: { string }, consumed: { [strin
 	end
 
 	local fusions = 0
+	local crystals = 0
 	while #ordered >= ArtistsConfig.FuseCount do
 		local keeper = table.remove(ordered, 1) :: string
+		local kept = data.Artists[keeper]
 		for _ = 1, ArtistsConfig.FuseCount - 1 do
 			local victim = table.remove(ordered) :: string
+			local lost = data.Artists[victim]
+			if lost and TraitCalc.IsBetter(lost.Trait, lost.TraitTier, kept.Trait, kept.TraitTier) then
+				kept.Trait, kept.TraitTier = lost.Trait, lost.TraitTier
+			end
 			data.Artists[victim] = nil
 			consumed[victim] = true
 			local equippedIndex = table.find(data.EquippedArtists, victim)
@@ -284,27 +358,32 @@ local function fuseGroup(data: ProfileData, uids: { string }, consumed: { [strin
 				table.remove(data.EquippedArtists, equippedIndex)
 			end
 		end
-		local artist = data.Artists[keeper]
-		artist.Stars = math.min(artist.Stars + 1, ArtistsConfig.MaxStars)
+		kept.Stars = math.min(kept.Stars + 1, ArtistsConfig.MaxStars)
+		local rarity = ArtistCalc.GetRarity(kept.Rarity)
+		local gained = TraitCalc.GetFusionCrystals(if rarity then rarity.Family else "Common", kept.Stars)
+		data.Crystals += gained
+		crystals += gained
 		fusions += 1
 	end
-	return fusions
+	return fusions, crystals
 end
 
 -- Funde todos os grupos possíveis (várias passagens: 1★->2★->3★). Sem Commit.
-local function fuseAllRaw(data: ProfileData, consumed: { [string]: boolean }): number
-	local total = 0
+local function fuseAllRaw(data: ProfileData, consumed: { [string]: boolean }): (number, number)
+	local total, crystals = 0, 0
 	for _ = 1, MAX_FUSE_PASSES do
 		local fusionsThisPass = 0
 		for _, group in ArtistCalc.GetFusableGroups(data.Artists) do
-			fusionsThisPass += fuseGroup(data, group, consumed)
+			local fusions, gained = fuseGroup(data, group, consumed)
+			fusionsThisPass += fusions
+			crystals += gained
 		end
 		total += fusionsThisPass
 		if fusionsThisPass == 0 then
 			break
 		end
 	end
-	return total
+	return total, crystals
 end
 
 -- Usado pelo GachaService (Auto-Fuse) — devolve os uids consumidos
@@ -315,6 +394,7 @@ function ArtistService.AutoFuse(player: Player): { [string]: boolean }
 		local fusions = fuseAllRaw(data, consumed)
 		if fusions > 0 then
 			fused:Fire(player, fusions)
+			PlayerStateService.MarkDirty(player) -- Cristais
 		end
 	end
 	return consumed
@@ -326,9 +406,9 @@ function ArtistService.Fuse(player: Player, target: string): (boolean, string)
 		return false, "Perfil não carregado."
 	end
 	local consumed: { [string]: boolean } = {}
-	local fusions = 0
+	local fusions, crystals = 0, 0
 	if target == "all" then
-		fusions = fuseAllRaw(data, consumed)
+		fusions, crystals = fuseAllRaw(data, consumed)
 	else
 		local artist = data.Artists[target]
 		if not artist then
@@ -338,14 +418,15 @@ function ArtistService.Fuse(player: Player, target: string): (boolean, string)
 		if not group then
 			return false, "Precisas de 3 cópias iguais (sem cadeado) para fundir."
 		end
-		fusions = fuseGroup(data, group, consumed)
+		fusions, crystals = fuseGroup(data, group, consumed)
 	end
 	if fusions == 0 then
 		return false, "Nada para fundir."
 	end
 	ArtistService.Commit(player)
 	fused:Fire(player, fusions)
-	return true, string.format("%d fusão(ões) concluída(s)!", fusions)
+	PlayerStateService.MarkDirty(player) -- Cristais
+	return true, string.format("%d fusão(ões) concluída(s)! +%d Cristais", fusions, crystals)
 end
 
 -- Sincronização ----------------------------------------------------------------------
@@ -353,7 +434,15 @@ end
 local function buildSync(player: Player, data: ProfileData): ArtistsSync
 	local artists: { [string]: ArtistData } = {}
 	for uid, artist in data.Artists do
-		artists[uid] = { Id = artist.Id, Rarity = artist.Rarity, Stars = artist.Stars, Locked = artist.Locked }
+		artists[uid] = {
+			Id = artist.Id,
+			Rarity = artist.Rarity,
+			Stars = artist.Stars,
+			Locked = artist.Locked,
+			Variant = artist.Variant,
+			Trait = artist.Trait,
+			TraitTier = artist.TraitTier,
+		}
 	end
 	return {
 		Artists = artists,
@@ -362,6 +451,7 @@ local function buildSync(player: Player, data: ProfileData): ArtistsSync
 		Pity = table.clone(data.Pity),
 		AutoFuse = data.Settings.AutoFuse,
 		AutoDeleteUpTo = data.Settings.AutoDeleteUpTo,
+		AutoDeleteVariants = data.Settings.AutoDeleteVariants,
 		Effects = ArtistService.GetEffects(player),
 	}
 end
@@ -442,6 +532,14 @@ function ArtistService.Init()
 		local data = DataService.GetProfile(player)
 		if data then
 			data.Settings.AutoDeleteUpTo = math.clamp(upToArg :: number, 0, ArtistsConfig.AutoDeleteMaxIndex)
+			dirty[player] = true
+		end
+	end)
+
+	ServerNet.Connect(RemoteDefs.Defs.SetAutoDeleteVariants, function(player: Player, enabledArg: unknown)
+		local data = DataService.GetProfile(player)
+		if data then
+			data.Settings.AutoDeleteVariants = enabledArg :: boolean
 			dirty[player] = true
 		end
 	end)

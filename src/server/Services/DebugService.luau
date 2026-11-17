@@ -29,6 +29,8 @@ local PlotService = require(script.Parent.PlotService)
 local StageService = require(script.Parent.StageService)
 local ArtistService = require(script.Parent.ArtistService)
 local GachaService = require(script.Parent.GachaService)
+local IndexService = require(script.Parent.IndexService)
+local ShowcaseService = require(script.Parent.ShowcaseService)
 local PrestigeService = require(script.Parent.PrestigeService)
 local MonetizationService = require(script.Parent.MonetizationService)
 local RetentionService = require(script.Parent.RetentionService)
@@ -37,6 +39,12 @@ local RetentionConfig = require(ReplicatedStorage.Shared.Config.Retention)
 local ArtistsConfig = require(ReplicatedStorage.Shared.Config.Artists)
 local RaritiesConfig = require(ReplicatedStorage.Shared.Config.Rarities)
 local MapCalc = require(ReplicatedStorage.Shared.Calc.MapCalc)
+local IndexCalc = require(ReplicatedStorage.Shared.Calc.IndexCalc)
+local VariantCalc = require(ReplicatedStorage.Shared.Calc.VariantCalc)
+local VariantsConfig = require(ReplicatedStorage.Shared.Config.Variants)
+local TraitsConfig = require(ReplicatedStorage.Shared.Config.Traits)
+local TraitCalc = require(ReplicatedStorage.Shared.Calc.TraitCalc)
+local ArtistIndexConfig = require(ReplicatedStorage.Shared.Config.ArtistIndex)
 local MapConfig = require(ReplicatedStorage.Shared.Config.Map)
 
 type Command = {
@@ -67,6 +75,11 @@ local COMMAND_ORDER = {
 	"pity",
 	"crate",
 	"cinematic",
+	"index",
+	"showcase",
+	"variant",
+	"crystals",
+	"trait",
 	"tour",
 	"discs",
 	"skills",
@@ -385,8 +398,78 @@ local function findIdCaseless(list: { string }, text: string?): string?
 	return nil
 end
 
+-- Variante por id ou nome ("Golden"/"Dourado"), sem diferenciar maiúsculas
+local function findVariant(text: string?): string?
+	if not text then
+		return nil
+	end
+	local lower = string.lower(text)
+	for _, variant in VariantsConfig.List do
+		if string.lower(variant.Id) == lower or string.lower(variant.Name) == lower then
+			return variant.Id
+		end
+	end
+	return nil
+end
+
+commands.variant = {
+	Usage = "variant odds",
+	Description = "Mostra as chances e bónus das variantes Brilhantes",
+	Run = function(_player: Player, _args: { string }): string
+		local parts: { string } = {}
+		for _, variant in VariantsConfig.List do
+			table.insert(parts, string.format("%s 1/%d (+%d%%)", variant.Name, variant.Chance, math.floor(variant.Bonus * 100 + 0.5)))
+		end
+		return string.format("Variantes (alguma: %.2f%%): %s", VariantCalc.GetAnyChance() * 100, table.concat(parts, " · "))
+	end,
+}
+
+commands.crystals = {
+	Usage = "crystals add|set <n>",
+	Description = "Cristais (Estúdio de Remix)",
+	Run = function(player: Player, args: { string }): string
+		local data = DataService.GetProfile(player)
+		local amount = tonumber(args[2] or "")
+		if not data or not amount or (args[1] ~= "add" and args[1] ~= "set") then
+			return "Uso: /fe crystals add|set <n>"
+		end
+		data.Crystals = math.max(0, math.floor(if args[1] == "add" then data.Crystals + amount else amount))
+		PlayerStateService.MarkDirty(player)
+		return "Cristais: " .. data.Crystals
+	end,
+}
+
+commands.trait = {
+	Usage = "trait reroll <uid> [force <traço> <raridade>]",
+	Description = "Volta a sortear o traço de um artista (grátis) ou força um traço",
+	Run = function(player: Player, args: { string }): string
+		local data = DataService.GetProfile(player)
+		local uid = args[2]
+		local artist = if data and uid then data.Artists[uid] else nil
+		if args[1] ~= "reroll" or not artist then
+			return "Uso: /fe trait reroll <uid> [force <traço> <raridade>]  (uid: vê no detalhe da Coleção)"
+		end
+		if args[3] == "force" then
+			local traitId = findIdCaseless(TraitsConfig.Ids, args[4])
+			local tierIds: { string } = {}
+			for _, tier in TraitsConfig.Tiers do
+				table.insert(tierIds, tier.Id)
+			end
+			local tierId = findIdCaseless(tierIds, args[5])
+			if not traitId or not tierId then
+				return "Traços: " .. table.concat(TraitsConfig.Ids, ", ") .. " · raridades: Common, Rare, Epic, Legendary"
+			end
+			artist.Trait, artist.TraitTier = traitId, tierId
+		else
+			artist.Trait, artist.TraitTier = TraitCalc.Roll(Random.new())
+		end
+		ArtistService.Commit(player)
+		return "Traço: " .. TraitCalc.Describe(artist.Trait, artist.TraitTier)
+	end,
+}
+
 commands.artist = {
-	Usage = "artist give <artistId> <raridade> [estrelas] [qtd] | artist clear",
+	Usage = "artist give <artistId> <raridade> [estrelas] [qtd] [variante] | artist clear",
 	Description = "Dá artistas (ids em Config/Artists) ou limpa a coleção",
 	Run = function(player: Player, args: { string }): string
 		local data = DataService.GetProfile(player)
@@ -411,20 +494,21 @@ commands.artist = {
 		local rarityId = findIdCaseless(rarityIds, args[3])
 		local stars = tonumber(args[4] or "1") or 1
 		local amount = math.clamp(tonumber(args[5] or "1") or 1, 1, 50)
+		local variant = findVariant(args[6]) or ""
 		if args[1] ~= "give" or not artistId or not rarityId then
-			return "Uso: /fe artist give <artistId> <raridade> [estrelas] [qtd]  (ex.: LinaLoop Brilliant 1 3)"
+			return "Uso: /fe artist give <artistId> <raridade> [estrelas] [qtd] [variante]  (ex.: LinaLoop Brilliant 1 3 Golden)"
 		end
 		for _ = 1, amount do
-			ArtistService.AddArtist(player, artistId, rarityId, stars)
+			ArtistService.AddArtist(player, artistId, rarityId, stars, variant)
 		end
 		ArtistService.Commit(player)
-		return string.format("+%d %s · %s %d★", amount, artistId, rarityId, stars)
+		return string.format("+%d %s · %s %d★%s", amount, artistId, rarityId, stars, if variant ~= "" then " · " .. variant else "")
 	end,
 }
 
 commands.crate = {
-	Usage = "crate anim <raridade> [x10]",
-	Description = "Pré-visualiza a abertura (roleta/grelha; mistério se aplicável) sem gastar nem dar nada",
+	Usage = "crate anim <raridade> [x10] [variante]",
+	Description = "Pré-visualiza a abertura (roleta/grelha; mistério/variante se aplicável) sem gastar nem dar nada",
 	Run = function(player: Player, args: { string }): string
 		local rarityIds: { string } = {}
 		for _, rarity in RaritiesConfig.List do
@@ -432,10 +516,11 @@ commands.crate = {
 		end
 		local rarityId = findIdCaseless(rarityIds, args[2])
 		if args[1] ~= "anim" or not rarityId then
-			return "Uso: /fe crate anim <raridade> [x10]  (ex.: crate anim Omega)"
+			return "Uso: /fe crate anim <raridade> [x10] [variante]  (ex.: crate anim Omega · crate anim Rare Golden)"
 		end
-		local count = if args[3] and string.lower(args[3]) == "x10" then 10 else 1
-		return GachaService.Preview(player, rarityId, count, false)
+		local x10 = (args[3] and string.lower(args[3]) == "x10") or (args[4] and string.lower(args[4]) == "x10")
+		local variant = findVariant(args[3]) or findVariant(args[4])
+		return GachaService.Preview(player, rarityId, if x10 then 10 else 1, false, variant)
 	end,
 }
 
@@ -457,6 +542,77 @@ commands.cinematic = {
 		end
 		local rarityId = findIdCaseless(rarityIds, args[1]) or "Omega"
 		return GachaService.Preview(player, rarityId, 1, true)
+	end,
+}
+
+commands.index = {
+	Usage = "index discover <artistId> <raridade>|all|reset|claim <raridade|Final>",
+	Description = "Índice: descobrir combinações, limpar ou reclamar prémios",
+	Run = function(player: Player, args: { string }): string
+		local data = DataService.GetProfile(player)
+		if not data then
+			return "Perfil não carregado."
+		end
+		local rarityIds: { string } = {}
+		for _, rarity in RaritiesConfig.List do
+			table.insert(rarityIds, rarity.Id)
+		end
+		local action = args[1]
+		if action == "reset" then
+			table.clear(data.Index.Discovered)
+			table.clear(data.Index.Claimed)
+			ArtistService.Commit(player)
+			IndexService.MarkDirty(player)
+			return "Índice limpo (descobertas e prémios)."
+		elseif action == "all" then
+			for _, rarityId in rarityIds do
+				for _, combo in IndexCalc.GetCombos(rarityId) do
+					data.Index.Discovered[combo.Key] = true
+				end
+			end
+			IndexService.MarkDirty(player)
+			return string.format("Índice completo: %d combinações descobertas.", IndexCalc.GetTotalCombos())
+		elseif action == "claim" then
+			local key = args[2] or ""
+			if string.lower(key) == "final" then
+				key = ArtistIndexConfig.FinalKey
+			else
+				key = findIdCaseless(rarityIds, key) or key
+			end
+			local _, message = IndexService.Claim(player, key)
+			return message
+		elseif action == "discover" then
+			local artistIds: { string } = {}
+			for _, def in ArtistsConfig.List do
+				table.insert(artistIds, def.Id)
+			end
+			local artistId = findIdCaseless(artistIds, args[2])
+			local rarityId = findIdCaseless(rarityIds, args[3])
+			if not artistId or not rarityId then
+				return "Uso: /fe index discover <artistId> <raridade>"
+			end
+			if not IndexCalc.IsValidKey(IndexCalc.Key(artistId, rarityId)) then
+				return string.format("%s não sai em %s (fora da janela da crate dele).", artistId, rarityId)
+			end
+			local new = ArtistService.MarkDiscovered(player, artistId, rarityId)
+			local have, total = IndexCalc.GetTotalProgress(data.Index.Discovered)
+			return string.format("%s · %s %s (%d/%d)", artistId, rarityId, if new then "descoberto" else "já estava descoberto", have, total)
+		end
+		return "Uso: /fe index discover <id> <raridade> | all | reset | claim <raridade|Final>"
+	end,
+}
+
+commands.showcase = {
+	Usage = "showcase auto|<uid>",
+	Description = "Vitrine: modo automático ou o artista com esse uid",
+	Run = function(player: Player, args: { string }): string
+		local arg = args[1] or "auto"
+		if string.lower(arg) == "auto" then
+			local _, message = ShowcaseService.Set(player, "Auto", "")
+			return message
+		end
+		local _, message = ShowcaseService.Set(player, "Manual", arg)
+		return message
 	end,
 }
 

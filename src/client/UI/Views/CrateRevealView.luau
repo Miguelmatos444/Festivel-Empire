@@ -24,6 +24,8 @@ local CrateAnimConfig = require(ReplicatedStorage.Shared.Config.CrateAnimation)
 local RaritiesConfig = require(ReplicatedStorage.Shared.Config.Rarities)
 local ArtistCalc = require(ReplicatedStorage.Shared.Calc.ArtistCalc)
 local CrateAnimCalc = require(ReplicatedStorage.Shared.Calc.CrateAnimCalc)
+local VariantCalc = require(ReplicatedStorage.Shared.Calc.VariantCalc)
+local TraitCalc = require(ReplicatedStorage.Shared.Calc.TraitCalc)
 local Trove = require(ReplicatedStorage.Shared.Util.Trove)
 
 local Client = script.Parent.Parent.Parent
@@ -32,6 +34,7 @@ local CrateCinematicController = require(Client.Controllers.CrateCinematicContro
 local ArtistController = require(Client.Controllers.ArtistController)
 local CinematicAssets = require(Client.Controllers.CinematicAssets)
 local CrateSfx = require(Client.Controllers.CrateSfx)
+local VariantVisuals = require(Client.Controllers.VariantVisuals)
 local Theme = require(script.Parent.Parent.Theme)
 local Components = require(script.Parent.Parent.Components)
 local ModalManager = require(script.Parent.Parent.ModalManager)
@@ -46,6 +49,7 @@ type RevealEffect = CrateStopEffect | "Mystery"
 
 type CardRefs = {
 	Outer: Frame,
+	HoverScale: UIScale, -- efeito ao passar o rato (grelha x10)
 	Inner: Frame,
 	Scale: UIScale,
 	Face: Frame,
@@ -57,6 +61,9 @@ type CardRefs = {
 	Name: TextLabel,
 	Rarity: TextLabel,
 	Chance: TextLabel,
+	Shiny: TextLabel, -- faixa da variante Brilhante
+	NewBadge: TextLabel, -- selo "NOVO!"
+	Shimmer: UIGradient, -- brilho a percorrer a moldura (variantes)
 }
 
 type Spin = {
@@ -129,6 +136,8 @@ local function makeCard(parent: Instance, size: Vector2, layoutOrder: number): C
 	outer.Size = UDim2.fromOffset(size.X, size.Y)
 	outer.LayoutOrder = layoutOrder
 	outer.Parent = parent
+	local hoverScale = Instance.new("UIScale")
+	hoverScale.Parent = outer
 
 	local inner = Instance.new("Frame")
 	inner.Name = "Inner"
@@ -197,6 +206,32 @@ local function makeCard(parent: Instance, size: Vector2, layoutOrder: number): C
 	Components.addStroke(chanceLabel, Theme.Colors.Background, 1.5)
 	chanceLabel.Parent = face
 
+	local shiny = Components.makeLabel("Shiny", Theme.Fonts.Display, Theme.Colors.Text, 13)
+	shiny.Position = UDim2.fromOffset(0, 0)
+	shiny.Size = UDim2.new(1, 0, 0, 16 * unit)
+	shiny.BackgroundTransparency = 0.15
+	shiny.Visible = false
+	shiny.ZIndex = 4
+	Components.addStroke(shiny, Theme.Colors.Background, 1.5)
+	shiny.Parent = face
+
+	local newBadge = Components.makeLabel("New", Theme.Fonts.Display, Theme.Colors.Text, 13)
+	newBadge.AnchorPoint = Vector2.new(1, 0)
+	newBadge.Position = UDim2.new(1, -3, 0, 18 * unit)
+	newBadge.Size = UDim2.fromOffset(46 * unit, 18 * unit)
+	newBadge.BackgroundTransparency = 0
+	newBadge.BackgroundColor3 = Theme.Colors.Danger
+	newBadge.Text = "NOVO!"
+	newBadge.Rotation = 8
+	newBadge.Visible = false
+	newBadge.ZIndex = 5
+	Components.addCorner(newBadge, UDim.new(0, 6))
+	newBadge.Parent = face
+
+	local shimmer = Instance.new("UIGradient")
+	shimmer.Enabled = false
+	shimmer.Parent = stroke
+
 	local back = Components.makeLabel("Back", Theme.Fonts.Display, Theme.Colors.Text, 64)
 	back.Size = UDim2.fromScale(1, 1)
 	back.BackgroundTransparency = 0
@@ -206,6 +241,7 @@ local function makeCard(parent: Instance, size: Vector2, layoutOrder: number): C
 
 	return {
 		Outer = outer,
+		HoverScale = hoverScale,
 		Inner = inner,
 		Scale = scale,
 		Face = face,
@@ -217,11 +253,15 @@ local function makeCard(parent: Instance, size: Vector2, layoutOrder: number): C
 		Name = nameLabel,
 		Rarity = rarityLabel,
 		Chance = chanceLabel,
+		Shiny = shiny,
+		NewBadge = newBadge,
+		Shimmer = shimmer,
 	}
 end
 
 -- Preenche a carta (fora do RenderStepped)
-local function setCardContent(card: CardRefs, crate: CrateDef?, artistId: string, rarityId: string, mystery: boolean)
+-- variant/isNew: faixa Brilhante (moldura com brilho) e selo "NOVO!" (nunca nas cartas mistério)
+local function setCardContent(card: CardRefs, crate: CrateDef?, artistId: string, rarityId: string, mystery: boolean, variant: string?, isNew: boolean?)
 	local rarity = RaritiesConfig.ById[rarityId] or RaritiesConfig.List[1]
 	local def = ArtistCalc.GetArtist(artistId)
 	card.Back.Visible = false
@@ -251,6 +291,22 @@ local function setCardContent(card: CardRefs, crate: CrateDef?, artistId: string
 		card.Chance.Text = if crate then formatChance(CrateAnimCalc.GetChance(crate, rarityId)) else ""
 		card.Chance.TextColor3 = Theme.Colors.Gold
 	end
+	local variantDef = if mystery then nil else VariantCalc.Get(variant)
+	card.Shiny.Visible = variantDef ~= nil
+	card.Shimmer.Enabled = variantDef ~= nil
+	if variantDef then
+		card.Shiny.Text = "★ " .. string.upper(variantDef.Name)
+		card.Shiny.BackgroundColor3 = variantDef.Color
+		card.Stroke.Color = Color3.new(1, 1, 1)
+		card.Stroke.Thickness = 4
+		card.Glow.BackgroundColor3 = variantDef.Color
+		card.Shimmer.Color = ColorSequence.new({
+			ColorSequenceKeypoint.new(0, variantDef.Color),
+			ColorSequenceKeypoint.new(0.5, Color3.new(1, 1, 1)),
+			ColorSequenceKeypoint.new(1, variantDef.Color),
+		})
+	end
+	card.NewBadge.Visible = not mystery and isNew == true
 end
 
 local function setCardBack(card: CardRefs, crate: CrateDef?)
@@ -260,6 +316,7 @@ local function setCardBack(card: CardRefs, crate: CrateDef?)
 	card.Stroke.Color = Theme.Colors.Gold
 	card.Stroke.Thickness = 3
 	card.Scale.Scale = 1
+	card.Shimmer.Enabled = false
 end
 
 -- Montagem -------------------------------------------------------------------
@@ -384,6 +441,38 @@ function CrateRevealView.Mount()
 	Components.addCorner(resultPanel, UDim.new(0, 16))
 	local resultStroke = Components.addStroke(resultPanel, Theme.Colors.Gold, 2)
 	resultPanel.Parent = holder
+	local resultScale = Instance.new("UIScale")
+	resultScale.Parent = resultPanel
+
+	-- Raios de luz a rodar atrás do retrato (cor da raridade/variante)
+	local rays = Components.makeFrame("Rays")
+	rays.AnchorPoint = Vector2.new(0.5, 0.5)
+	rays.Position = UDim2.fromOffset(8 + VIEWPORT_SIZE / 2, 8 + VIEWPORT_SIZE / 2)
+	rays.Size = UDim2.fromOffset(VIEWPORT_SIZE * 1.9, VIEWPORT_SIZE * 1.9)
+	rays.ZIndex = 0
+	rays.Parent = resultPanel
+	local rayBeams: { Frame } = {}
+	for index = 1, 8 do
+		local beam = Instance.new("Frame")
+		beam.Name = "Ray" .. index
+		beam.AnchorPoint = Vector2.new(0.5, 0.5)
+		beam.Position = UDim2.fromScale(0.5, 0.5)
+		beam.Size = UDim2.new(0, 14, 1, 0)
+		beam.Rotation = (index - 1) * 22.5
+		beam.BorderSizePixel = 0
+		beam.BackgroundColor3 = Theme.Colors.Gold
+		beam.ZIndex = 0
+		local fade = Instance.new("UIGradient")
+		fade.Rotation = 90
+		fade.Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 1),
+			NumberSequenceKeypoint.new(0.5, 0.35),
+			NumberSequenceKeypoint.new(1, 1),
+		})
+		fade.Parent = beam
+		beam.Parent = rays
+		table.insert(rayBeams, beam)
+	end
 
 	local viewport = Instance.new("ViewportFrame")
 	viewport.Name = "Portrait"
@@ -393,6 +482,7 @@ function CrateRevealView.Mount()
 	viewport.Ambient = Color3.fromRGB(200, 200, 210)
 	viewport.LightColor = Color3.new(1, 1, 1)
 	Components.addCorner(viewport, UDim.new(0, 12))
+	viewport.ZIndex = 2
 	viewport.Parent = resultPanel
 	local viewportCamera = Instance.new("Camera")
 	viewportCamera.FieldOfView = 40
@@ -437,6 +527,36 @@ function CrateRevealView.Mount()
 	againButton.LayoutOrder = 2
 	againButton.Parent = buttons
 
+	-- Efeito ao passar o rato: cresce um pouco (e volta ao sair)
+	local function addHover(target: GuiObject, scale: UIScale, amount: number, onChange: ((boolean) -> ())?)
+		trove:Connect(target.MouseEnter, function()
+			TweenService:Create(scale, TweenInfo.new(0.15, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = amount }):Play()
+			if onChange then
+				onChange(true)
+			end
+		end)
+		trove:Connect(target.MouseLeave, function()
+			TweenService:Create(scale, TweenInfo.new(0.15), { Scale = 1 }):Play()
+			if onChange then
+				onChange(false)
+			end
+		end)
+	end
+	for _, button in { continueButton, againButton } do
+		local scale = Instance.new("UIScale")
+		scale.Parent = button
+		addHover(button, scale, 1.08)
+	end
+	for _, card in gridCards do
+		addHover(card.Outer, card.HoverScale, 1.08)
+	end
+	local portraitHover = false
+	local viewportScale = Instance.new("UIScale")
+	viewportScale.Parent = viewport
+	addHover(viewport, viewportScale, 1.06, function(hovered: boolean)
+		portraitHover = hovered
+	end)
+
 	-- Flash e confetti (por cima de tudo no painel)
 	local flash = Instance.new("Frame")
 	flash.Name = "Flash"
@@ -446,6 +566,18 @@ function CrateRevealView.Mount()
 	flash.BorderSizePixel = 0
 	flash.ZIndex = 50
 	flash.Parent = backdrop
+
+	-- "BRILHANTE!" quando sai uma variante
+	local shinyBanner = Components.makeLabel("Shiny", Theme.Fonts.Display, Theme.Colors.Text, 64)
+	shinyBanner.AnchorPoint = Vector2.new(0.5, 0.5)
+	shinyBanner.Position = UDim2.fromScale(0.5, 0.42)
+	shinyBanner.Size = UDim2.fromOffset(760, 80)
+	shinyBanner.Visible = false
+	shinyBanner.ZIndex = 45
+	Components.addStroke(shinyBanner, BLACK, 3)
+	shinyBanner.Parent = holder
+	local shinyScale = Instance.new("UIScale")
+	shinyScale.Parent = shinyBanner
 
 	local confettiFrames: { Frame } = {}
 	local confettiX: { number } = {}
@@ -466,6 +598,24 @@ function CrateRevealView.Mount()
 		table.insert(confettiVX, 0)
 		table.insert(confettiVY, 0)
 	end
+
+	-- Círculos de energia que saem da carta quando a consegues (pool fixa)
+	type Ring = { Frame: Frame, Stroke: UIStroke }
+	local rings: { Ring } = {}
+	for index = 1, 6 do
+		local ring = Instance.new("Frame")
+		ring.Name = "Ring" .. index
+		ring.AnchorPoint = Vector2.new(0.5, 0.5)
+		ring.BackgroundTransparency = 1
+		ring.BorderSizePixel = 0
+		ring.Visible = false
+		ring.ZIndex = 38
+		Components.addCorner(ring, UDim.new(1, 0))
+		local stroke = Components.addStroke(ring, Color3.new(1, 1, 1), 6)
+		ring.Parent = holder
+		table.insert(rings, { Frame = ring, Stroke = stroke })
+	end
+	local nextRing = 1
 
 	-- Camada da cinemática ---------------------------------------------------------
 	local cinematicGui = trove:Add(Instance.new("ScreenGui"))
@@ -564,6 +714,8 @@ function CrateRevealView.Mount()
 	local confettiTime = 0
 	local confettiActive = 0
 	local portraitRig: Model? = nil
+	local shimmers: { UIGradient } = {} -- molduras Brilhantes a animar
+	local bannerToken = 0
 	local portraitAngle = 0
 	local rng = Random.new()
 
@@ -590,6 +742,37 @@ function CrateRevealView.Mount()
 		end
 	end
 
+	-- Dois círculos a expandir a partir da carta + um clarão redondo por dentro
+	local function burstFrom(card: CardRefs, color: Color3)
+		local scale = math.max(fitScale.Scale, 0.01)
+		local center = (card.Inner.AbsolutePosition + card.Inner.AbsoluteSize / 2 - holder.AbsolutePosition) / scale
+		for wave = 1, 3 do
+			local ring = rings[nextRing]
+			nextRing = nextRing % #rings + 1
+			local filled = wave == 3 -- o 3.º é um clarão cheio, mais pequeno
+			local delay = if filled then 0 else (wave - 1) * 0.12
+			task.delay(delay, function()
+				local frame = ring.Frame
+				frame.Position = UDim2.fromOffset(center.X, center.Y)
+				frame.Size = UDim2.fromOffset(30, 30)
+				frame.BackgroundColor3 = color
+				frame.BackgroundTransparency = if filled then 0.35 else 1
+				ring.Stroke.Color = color
+				ring.Stroke.Transparency = if filled then 1 else 0
+				ring.Stroke.Thickness = 7
+				frame.Visible = true
+				local target = if filled then 260 else 520 - wave * 60
+				local info = TweenInfo.new(if filled then 0.45 else 0.75, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+				TweenService:Create(frame, info, { Size = UDim2.fromOffset(target, target), BackgroundTransparency = 1 }):Play()
+				local fade = TweenService:Create(ring.Stroke, info, { Transparency = 1, Thickness = 1 })
+				fade.Completed:Once(function()
+					frame.Visible = false
+				end)
+				fade:Play()
+			end)
+		end
+	end
+
 	local function clearPortrait()
 		local rig = portraitRig
 		if rig then
@@ -601,6 +784,7 @@ function CrateRevealView.Mount()
 	local function setPortrait(item: CrateItem, rarity: RarityDef)
 		clearPortrait()
 		local rig = CinematicAssets.GetArtistRig(item.ArtistId, rarity.Color)
+		VariantVisuals.Apply(rig, item.Variant)
 		rig:PivotTo(CFrame.new())
 		local boxCFrame, size = rig:GetBoundingBox()
 		local center = boxCFrame.Position
@@ -614,6 +798,9 @@ function CrateRevealView.Mount()
 	local function applyStopEffect(card: CardRefs, effect: RevealEffect, rarity: RarityDef)
 		card.Scale.Scale = 1.12
 		TweenService:Create(card.Scale, Theme.Tween.Toast, { Scale = 1 }):Play()
+		if effect ~= "Mystery" then
+			burstFrom(card, if card.Shimmer.Enabled then card.Shiny.BackgroundColor3 else rarity.Color)
+		end
 		if effect == "Mystery" then
 			pulseLabel = card.Chance
 			pulseStroke = card.Stroke
@@ -629,6 +816,30 @@ function CrateRevealView.Mount()
 		else
 			CrateSfx.Play("CrateStop")
 		end
+	end
+
+	-- Variante Brilhante revelada: "BRILHANTE!", som próprio e brilho na moldura
+	local function celebrateShiny(card: CardRefs, item: CrateItem)
+		local variant = VariantCalc.Get(item.Variant)
+		if not variant then
+			return
+		end
+		table.insert(shimmers, card.Shimmer)
+		CrateSfx.Play("CrateShiny")
+		bannerToken += 1
+		local token = bannerToken
+		shinyBanner.Text = "BRILHANTE! · " .. string.upper(variant.Name)
+		shinyBanner.TextColor3 = variant.Color
+		shinyBanner.TextTransparency = 0
+		shinyBanner.Visible = true
+		shinyScale.Scale = 0.4
+		TweenService:Create(shinyScale, Theme.Tween.Toast, { Scale = 1 }):Play()
+		startConfetti(variant.Color)
+		task.delay(1.4, function()
+			if token == bannerToken then
+				TweenService:Create(shinyBanner, TweenInfo.new(0.4), { TextTransparency = 1 }):Play()
+			end
+		end)
 	end
 
 	local function effectFor(item: CrateItem): RevealEffect
@@ -686,9 +897,16 @@ function CrateRevealView.Mount()
 				end
 			end
 		end
+		for _, shimmer in shimmers do
+			shimmer.Rotation = (now * 220) % 360
+		end
+		if resultPanel.Visible then
+			rays.Rotation = (rays.Rotation + dt * (if portraitHover then 70 else 25)) % 360
+			resultStroke.Thickness = 2 + 2.5 * pulse
+		end
 		local rig = portraitRig
 		if rig then
-			portraitAngle += dt * 0.8
+			portraitAngle += dt * (if portraitHover then 2.4 else 0.8)
 			rig:PivotTo(CFrame.Angles(0, portraitAngle, 0))
 		end
 	end
@@ -770,11 +988,22 @@ function CrateRevealView.Mount()
 		local item = result.Items[bestIndex]
 		local rarity = RaritiesConfig.ById[item.Rarity] or RaritiesConfig.List[1]
 		local def = ArtistCalc.GetArtist(item.ArtistId)
-		resultName.Text = if def then def.Name else item.ArtistId
 		resultRarity.Text = rarity.Name
 		resultRarity.TextColor3 = if rarity.Effect == "Gradient" or rarity.Effect == "Rainbow" then Color3.new(1, 1, 1) else rarity.Color
 		setGradient(resultRarity, rarity)
 		resultStroke.Color = rarity.Color
+		local extras: { string } = {}
+		local variant = VariantCalc.Get(item.Variant)
+		if variant then
+			table.insert(extras, string.format("★ %s (+%d%%)", variant.Name, math.floor(variant.Bonus * 100 + 0.5)))
+		end
+		if #result.Items == 1 and item.Trait and item.Trait ~= "" then
+			table.insert(extras, "Traço: " .. TraitCalc.Describe(item.Trait, item.TraitTier))
+		end
+		if item.New and item.IndexHave and item.IndexTotal then
+			table.insert(extras, string.format("Novo no Índice! %d/%d", item.IndexHave, item.IndexTotal))
+		end
+		resultName.Text = (if def then def.Name else item.ArtistId) .. (if variant then " ★" else "")
 		if result.Preview then
 			resultInfo.Text = "Pré-visualização: nada foi gasto nem entregue."
 		elseif #result.Items == 1 then
@@ -785,7 +1014,19 @@ function CrateRevealView.Mount()
 		else
 			resultInfo.Text = string.format("Melhor de %d · Novos %d · Fundidos %d · Apagados %d", #result.Items, counts.New, counts.Fused, counts.Deleted)
 		end
+		if #extras > 0 then
+			resultInfo.Text = table.concat(extras, " · ") .. "\n" .. resultInfo.Text
+		end
 		setPortrait(item, rarity)
+		-- Raios e moldura na cor da variante (se houver) ou da raridade
+		local accent = if variant then variant.Color else rarity.Color
+		for _, beam in rayBeams do
+			beam.BackgroundColor3 = accent
+		end
+		resultStroke.Color = accent
+		viewport.BackgroundColor3 = Theme.Colors.Background:Lerp(accent, 0.25)
+		resultScale.Scale = 0.6
+		TweenService:Create(resultScale, TweenInfo.new(0.45, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
 		resultPanel.Visible = true
 		buttons.Visible = true
 		againButton.Visible = not result.Preview
@@ -825,6 +1066,12 @@ function CrateRevealView.Mount()
 		for index, card in cards do
 			setCardContent(stripCards[index], crate, card.ArtistId, card.Rarity, card.Mystery)
 		end
+		-- A variante da carta ganha vê-se já enquanto a faixa passa (o "NOVO!" só ao parar)
+		local winnerCard = stripCards[rouletteCfg.WinnerIndex]
+		if not item.Mystery and VariantCalc.Get(item.Variant) then
+			setCardContent(winnerCard, crate, item.ArtistId, item.Rarity, false, item.Variant, false)
+			table.insert(shimmers, winnerCard.Shimmer)
+		end
 		roulette.Visible = true
 
 		local function centerOf(index: number): number
@@ -849,12 +1096,19 @@ function CrateRevealView.Mount()
 			if token ~= playToken then
 				return
 			end
+			if not item.Mystery then
+				setCardContent(winner, crate, item.ArtistId, item.Rarity, false, item.Variant, item.New)
+			end
 			applyStopEffect(winner, effect, rarity)
+			if not item.Mystery then
+				celebrateShiny(winner, item)
+			end
 			if item.Mystery then
 				later(token, CrateAnimConfig.MysteryPause, function()
 					runMystery(token, result, item, function()
-						setCardContent(winner, crate, item.ArtistId, item.Rarity, false)
+						setCardContent(winner, crate, item.ArtistId, item.Rarity, false, item.Variant, item.New)
 						applyStopEffect(winner, "Flash", rarity)
+						celebrateShiny(winner, item)
 						finishPlay(token, result)
 					end)
 				end)
@@ -894,7 +1148,10 @@ function CrateRevealView.Mount()
 					if token ~= playToken then
 						return
 					end
-					setCardContent(card, crate, item.ArtistId, item.Rarity, item.Mystery == true)
+					setCardContent(card, crate, item.ArtistId, item.Rarity, item.Mystery == true, item.Variant, item.New)
+					if not item.Mystery then
+						celebrateShiny(card, item)
+					end
 					local effect: RevealEffect = effectFor(item)
 					local rarity = RaritiesConfig.ById[item.Rarity] or RaritiesConfig.List[1]
 					if effect == "Simple" then
@@ -916,7 +1173,8 @@ function CrateRevealView.Mount()
 					for slot, itemIndex in order do
 						local item = result.Items[itemIndex]
 						if item.Mystery then
-							setCardContent(gridCards[slot], crate, item.ArtistId, item.Rarity, false)
+							setCardContent(gridCards[slot], crate, item.ArtistId, item.Rarity, false, item.Variant, item.New)
+							celebrateShiny(gridCards[slot], item)
 							local rarity = RaritiesConfig.ById[item.Rarity] or RaritiesConfig.List[1]
 							applyStopEffect(gridCards[slot], "Flash", rarity)
 						end
@@ -946,6 +1204,8 @@ function CrateRevealView.Mount()
 		buttons.Visible = false
 		pulseLabel = nil
 		pulseStroke = nil
+		table.clear(shimmers)
+		shinyBanner.Visible = false
 		clearPortrait()
 		local crate = ArtistCalc.GetCrate(result.CrateId)
 		title.Text = if crate then crate.Name else "Vinyl Crate"

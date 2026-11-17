@@ -58,7 +58,7 @@ local trove = Trove.new()
 local debugPassiveOverride: { [Player]: BigNum } = {}
 local rateCache: { [Player]: RateCache } = {}
 local boosts: { [Player]: Boost } = {}
-local artistModifiers: { [Player]: { Hype: number, Click: number } } = {}
+local artistModifiers: { [Player]: { Hype: number, Click: number, Passive: number } } = {}
 local gamepassMultipliers: { [Player]: number } = {}
 
 local function assertGrowthRate(rate: number)
@@ -94,7 +94,8 @@ local function getRates(player: Player): RateCache?
 	local clickMultiplier = (1 + (if modifiers then modifiers.Click else 0)) * skills.ClickMultiplier
 	local rates: RateCache = {
 		PerClick = BigNum.mulNumber(EquipmentCalc.GetHypePerClick(data.Equipment), globalMultiplier * clickMultiplier),
-		PerSecond = BigNum.mulNumber(EquipmentCalc.GetPassivePerSecond(data.Equipment), globalMultiplier),
+		-- Traço Crowd Surfer: +% só no passivo
+		PerSecond = BigNum.mulNumber(EquipmentCalc.GetPassivePerSecond(data.Equipment), globalMultiplier * (1 + (if modifiers then modifiers.Passive else 0))),
 	}
 	rateCache[player] = rates
 	return rates
@@ -106,9 +107,10 @@ function EconomyService.SetGamepassMultiplier(player: Player, multiplier: number
 	EconomyService.InvalidateRates(player)
 end
 
--- Definido pelo ArtistService: multiplicador global de Hype e bónus extra por batida
-function EconomyService.SetArtistModifiers(player: Player, hypeMultiplier: number, clickBonus: number)
-	artistModifiers[player] = { Hype = hypeMultiplier, Click = clickBonus }
+-- Definido pelo ArtistService: multiplicador global de Hype, bónus extra por batida e
+-- bónus do Hype passivo (traço Crowd Surfer)
+function EconomyService.SetArtistModifiers(player: Player, hypeMultiplier: number, clickBonus: number, passiveBonus: number?)
+	artistModifiers[player] = { Hype = hypeMultiplier, Click = clickBonus, Passive = passiveBonus or 0 }
 	EconomyService.InvalidateRates(player)
 end
 

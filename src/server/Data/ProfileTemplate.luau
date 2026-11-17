@@ -15,7 +15,7 @@ type RawData = { [string]: unknown }
 
 local ProfileTemplate = {}
 
-ProfileTemplate.Version = 2
+ProfileTemplate.Version = 5
 
 function ProfileTemplate.Create(): Types.ProfileData
 	return {
@@ -37,6 +37,16 @@ function ProfileTemplate.Create(): Types.ProfileData
 			Divine = 0,
 			Cosmic = 0,
 		},
+		Crystals = 0,
+		Index = {
+			Discovered = {},
+			Claimed = {},
+			Variants = {},
+		},
+		Showcase = {
+			Mode = "Auto",
+			Uid = "",
+		},
 		SkillTree = {},
 		Stats = {
 			Clicks = 0,
@@ -49,6 +59,7 @@ function ProfileTemplate.Create(): Types.ProfileData
 			SfxVolume = 1,
 			LowVfx = false,
 			FastCrateAnim = false,
+			AutoDeleteVariants = false,
 			AutoFuse = false,
 			AutoDeleteUpTo = 0,
 		},

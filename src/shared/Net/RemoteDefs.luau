@@ -13,6 +13,8 @@ local PyroConfig = require(script.Parent.Parent.Config.Pyro)
 local StagesConfig = require(script.Parent.Parent.Config.Stages)
 local ArtistsConfig = require(script.Parent.Parent.Config.Artists)
 local SkillTreeConfig = require(script.Parent.Parent.Config.SkillTree)
+local RaritiesConfig = require(script.Parent.Parent.Config.Rarities)
+local ArtistIndexConfig = require(script.Parent.Parent.Config.ArtistIndex)
 
 type RemoteDef = Types.RemoteDef
 
@@ -32,6 +34,7 @@ export type Registry = {
 	FuseArtists: RemoteDef,
 	SetAutoFuse: RemoteDef,
 	SetAutoDelete: RemoteDef,
+	SetAutoDeleteVariants: RemoteDef,
 	BuySkillNode: RemoteDef,
 	DoWorldTour: RemoteDef,
 	ClaimDaily: RemoteDef,
@@ -39,6 +42,9 @@ export type Registry = {
 	RedeemCode: RemoteDef,
 	SetAutoClick: RemoteDef,
 	SetFastCrateAnim: RemoteDef,
+	ClaimIndexReward: RemoteDef,
+	SetShowcase: RemoteDef,
+	RemixTrait: RemoteDef,
 	StateSnapshot: RemoteDef,
 	StateDelta: RemoteDef,
 	Notify: RemoteDef,
@@ -48,12 +54,21 @@ export type Registry = {
 	ArtistsSync: RemoteDef,
 	CrateResult: RemoteDef,
 	CrateSummon: RemoteDef,
+	IndexSync: RemoteDef,
+	RemixResult: RemoteDef,
+	RemixBurst: RemoteDef,
 	RetentionSync: RemoteDef,
 }
 
 local UID_ARG: Types.ArgSpec = { Kind = "string", MaxLength = 12, Pattern = "^%d+$" }
 
 local BUY_MODES: { string } = { "x1", "x10", "x100", "Max" }
+
+-- Raridades + prémio final do Índice
+local INDEX_REWARD_KEYS: { string } = { ArtistIndexConfig.FinalKey }
+for _, rarity in RaritiesConfig.List do
+	table.insert(INDEX_REWARD_KEYS, rarity.Id)
+end
 
 local Defs: Registry = {
 	-- Cliente -> Servidor ----------------------------------------------------
@@ -162,6 +177,12 @@ local Defs: Registry = {
 		RateLimit = { PerSecond = 4, Burst = 6 },
 		Args = { { Kind = "number", Integer = true, Min = 0, Max = ArtistsConfig.AutoDeleteMaxIndex } },
 	},
+	SetAutoDeleteVariants = { -- (ligado) — o Auto-Delete também apaga variantes Brilhantes
+		Name = "SetAutoDeleteVariants",
+		Direction = "ClientToServer",
+		RateLimit = { PerSecond = 2, Burst = 4 },
+		Args = { { Kind = "boolean" } },
+	},
 	BuySkillNode = { -- (nodeId)
 		Name = "BuySkillNode",
 		Direction = "ClientToServer",
@@ -203,6 +224,28 @@ local Defs: Registry = {
 		Direction = "ClientToServer",
 		RateLimit = { PerSecond = 2, Burst = 4 },
 		Args = { { Kind = "boolean" } },
+	},
+	ClaimIndexReward = { -- (RarityId | "Final") — o servidor valida se está completa e por reclamar
+		Name = "ClaimIndexReward",
+		Direction = "ClientToServer",
+		RateLimit = { PerSecond = 2, Burst = 4 },
+		Args = { { Kind = "enum", Values = INDEX_REWARD_KEYS } },
+	},
+	SetShowcase = { -- (modo "Auto" | "Manual", uid: "" no modo Auto)
+		Name = "SetShowcase",
+		Direction = "ClientToServer",
+		RateLimit = { PerSecond = 2, Burst = 4 },
+		Args = {
+			{ Kind = "enum", Values = { "Auto", "Manual" } },
+			{ Kind = "string", MaxLength = 12, Pattern = "^%d*$" },
+		},
+	},
+
+	RemixTrait = { -- (uid) — Estúdio de Remix: paga Cristais e sorteia um novo traço
+		Name = "RemixTrait",
+		Direction = "ClientToServer",
+		RateLimit = { PerSecond = 2, Burst = 3 },
+		Args = { UID_ARG },
 	},
 
 	-- Servidor -> Cliente ----------------------------------------------------
@@ -246,6 +289,21 @@ local Defs: Registry = {
 		Direction = "ServerToClient",
 		Args = {},
 	},
+	RemixResult = { -- payload: Types.RemixResult (só o próprio jogador)
+		Name = "RemixResult",
+		Direction = "ServerToClient",
+		Args = {},
+	},
+	RemixBurst = { -- payload: UserId (todos: o disco do Estúdio explode num traço Lendário)
+		Name = "RemixBurst",
+		Direction = "ServerToClient",
+		Args = {},
+	},
+	IndexSync = { -- payload: Types.IndexSync (Índice + vitrine do próprio jogador)
+		Name = "IndexSync",
+		Direction = "ServerToClient",
+		Args = {},
+	},
 	CrateSummon = { -- payload: Types.CrateSummon (todos menos o dono, versão leve com LOD)
 		Name = "CrateSummon",
 		Direction = "ServerToClient",
@@ -274,6 +332,7 @@ local All: { RemoteDef } = {
 	Defs.FuseArtists,
 	Defs.SetAutoFuse,
 	Defs.SetAutoDelete,
+	Defs.SetAutoDeleteVariants,
 	Defs.BuySkillNode,
 	Defs.DoWorldTour,
 	Defs.ClaimDaily,
@@ -281,6 +340,9 @@ local All: { RemoteDef } = {
 	Defs.RedeemCode,
 	Defs.SetAutoClick,
 	Defs.SetFastCrateAnim,
+	Defs.ClaimIndexReward,
+	Defs.SetShowcase,
+	Defs.RemixTrait,
 	Defs.StateSnapshot,
 	Defs.StateDelta,
 	Defs.Notify,
@@ -290,6 +352,9 @@ local All: { RemoteDef } = {
 	Defs.ArtistsSync,
 	Defs.CrateResult,
 	Defs.CrateSummon,
+	Defs.IndexSync,
+	Defs.RemixResult,
+	Defs.RemixBurst,
 	Defs.RetentionSync,
 }
 

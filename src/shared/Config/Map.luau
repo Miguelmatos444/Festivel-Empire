@@ -40,9 +40,6 @@ local Map = table.freeze({
 			BorderColor = Color3.fromRGB(255, 209, 102),
 		}),
 
-		-- Estações antigas (prompt "Abrir Vinyl Crates"): a apagar depois do OK à Zona das Crates
-		CrateStationRadius = 55,
-		CrateStationAngles = table.freeze({ 30, 150, 270 }), -- graus, entre os caminhos
 		LeaderboardRadius = 80,
 		LeaderboardAngles = table.freeze({ 90, 210 }),
 	}),

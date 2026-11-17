@@ -189,7 +189,7 @@ local function resolveDrop(
 	session.Triggered = true
 	local modifiers = getModifiers(player)
 	local multiplier, synergies = DropCalc.ComputeMultiplier(firedIds, grade.Factor)
-	PyroService.StartCooldowns(player, cooldownIds, modifiers.CooldownCut)
+	PyroService.StartCooldowns(player, cooldownIds, modifiers.CooldownCut, ArtistService.GetEffects(player).MachineCut, ArtistsConfig.Caps.CooldownCut)
 
 	local data = DataService.GetProfile(player)
 	if data then

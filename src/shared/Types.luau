@@ -19,6 +19,46 @@ export type ArtistData = {
 	Rarity: string, -- id da raridade (Config/Rarities)
 	Stars: number, -- 1★ base, 2★ Remix, 3★ Platinum
 	Locked: boolean, -- protegido contra fusão e Auto-Delete
+	Variant: string, -- variante Brilhante (Config/Variants); "" = normal
+	Trait: string, -- traço (Config/Traits); "" = sem traço
+	TraitTier: string, -- raridade do traço ("Common" … "Legendary")
+}
+
+-- Traços (Fase 13B) ---------------------------------------------------------------
+export type TraitKind = "ArtistHype" | "ClickPower" | "Energy" | "BoostExtend" | "MachineCooldown" | "PassiveHype"
+
+export type TraitTierDef = {
+	Id: string,
+	Name: string,
+	Weight: number, -- %
+	Color: Color3,
+}
+
+export type TraitDef = {
+	Id: string,
+	Name: string,
+	Kind: TraitKind,
+	Values: { number }, -- um por raridade do traço (Comum, Raro, Épico, Lendário)
+	Machine: string?, -- MachineCooldown: máquina afetada (Config/Pyro)
+}
+
+-- Resultado de um Remix enviado ao próprio jogador
+export type RemixResult = {
+	Uid: string,
+	OldTrait: string,
+	OldTier: string,
+	Trait: string,
+	Tier: string,
+}
+
+-- Variante Brilhante (Fase 13A): chance à parte por artista obtido, multiplica o bónus
+export type VariantDef = {
+	Id: string,
+	Name: string,
+	Chance: number, -- 1 em N aberturas
+	Bonus: number, -- +X (0.25 = +25%) ao bónus do artista
+	Color: Color3,
+	Announce: boolean, -- anúncio a todo o servidor quando sai
 }
 
 -- Aberturas desde a última raridade >= ao patamar (Config/Rarities.PityLadder)
@@ -41,8 +81,37 @@ export type SettingsData = {
 	SfxVolume: number,
 	LowVfx: boolean,
 	FastCrateAnim: boolean, -- "Animação rápida" das crates
+	AutoDeleteVariants: boolean, -- o Auto-Delete também apaga variantes Brilhantes (por defeito não)
 	AutoFuse: boolean,
 	AutoDeleteUpTo: number, -- 0 = desligado; N = apaga as raridades 1..N ao saírem
+}
+
+-- Índice de Artistas (Fase 10). Chaves de Discovered: "ArtistId|RarityId" (IndexCalc.Key)
+export type IndexData = {
+	Discovered: { [string]: boolean },
+	Claimed: { [string]: boolean }, -- RarityId -> reclamado; Config/ArtistIndex.FinalKey = prémio final
+	Variants: { [string]: boolean }, -- "ArtistId|VariantId" descobertas (IndexCalc.VariantKey)
+}
+
+export type ShowcaseMode = "Auto" | "Manual"
+
+export type ShowcaseData = {
+	Mode: ShowcaseMode,
+	Uid: string, -- artista escolhido em modo Manual ("" = nenhum)
+}
+
+export type IndexReward = {
+	Crates: number?,
+	Discs: number?,
+}
+
+-- Enviado ao próprio jogador quando o Índice ou a vitrine mudam
+export type IndexSync = {
+	Discovered: { [string]: boolean },
+	Claimed: { [string]: boolean },
+	Variants: { [string]: boolean },
+	Showcase: ShowcaseData,
+	ShowcaseUid: string, -- artista que está mesmo na vitrine (Auto ou Manual; "" = nenhum)
 }
 
 export type ProfileData = {
@@ -59,6 +128,9 @@ export type ProfileData = {
 	EquippedArtists: { string }, -- uids nos slots do palco
 	NextArtistUid: number,
 	Pity: PityData,
+	Crystals: number, -- moeda do Estúdio de Remix (ganha a fundir; fica no World Tour)
+	Index: IndexData,
+	Showcase: ShowcaseData,
 	SkillTree: { [string]: number }, -- id do nó -> nível
 	Stats: StatsData,
 	Settings: SettingsData,
@@ -339,6 +411,8 @@ export type ArtistEffects = {
 	AutoPyroMask: number,
 	FullShow: boolean,
 	SaveDrops: { SaveDropEffect },
+	PassiveBonus: number, -- traço Crowd Surfer: +% Hype passivo global
+	MachineCut: { [string]: number }, -- traço Pirómano: −% recarga por máquina
 }
 
 export type ArtistsSync = {
@@ -348,6 +422,7 @@ export type ArtistsSync = {
 	Pity: PityData,
 	AutoFuse: boolean,
 	AutoDeleteUpTo: number,
+	AutoDeleteVariants: boolean,
 	Effects: ArtistEffects,
 }
 
@@ -359,6 +434,12 @@ export type CrateItem = {
 	Uid: string?,
 	Outcome: CrateOutcome,
 	Mystery: boolean?, -- carta mistério (dispara a cinemática)
+	Variant: string?, -- variante Brilhante (""/nil = normal)
+	New: boolean?, -- primeira vez que obtém esta combinação ou variante (selo "NOVO!")
+	IndexHave: number?, -- progresso da raridade no Índice depois desta abertura
+	IndexTotal: number?,
+	Trait: string?, -- traço sorteado (nil se foi apagado pelo Auto-Delete)
+	TraitTier: string?,
 }
 
 export type CrateResult = {
@@ -424,6 +505,7 @@ export type PlayerStateSnapshot = {
 	SkillTree: { [string]: number },
 	LowVfx: boolean,
 	FastCrateAnim: boolean,
+	Crystals: number,
 }
 
 export type StateDelta = {
@@ -440,6 +522,7 @@ export type StateDelta = {
 	SkillTree: { [string]: number }?, -- árvore completa quando muda
 	LowVfx: boolean?,
 	FastCrateAnim: boolean?,
+	Crystals: number?,
 }
 
 -- Prestige / World Tour --------------------------------------------------------

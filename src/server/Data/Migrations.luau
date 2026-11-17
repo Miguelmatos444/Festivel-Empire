@@ -37,6 +37,71 @@ local steps: { [number]: Migration } = {
 			end
 		end
 	end,
+
+	-- v2 -> v3 (Fase 10): Índice de Artistas e vitrine. Os artistas que o jogador já tem
+	-- passam a contar como descobertos.
+	[2] = function(data: RawData)
+		local discovered: { [string]: boolean } = {}
+		local artists = data.Artists
+		if type(artists) == "table" then
+			for _, value in (artists :: unknown) :: { [string]: unknown } do
+				if type(value) == "table" then
+					local artist = (value :: unknown) :: RawData
+					local id, rarity = artist.Id, artist.Rarity
+					if type(id) == "string" and type(rarity) == "string" then
+						discovered[id .. "|" .. rarity] = true
+					end
+				end
+			end
+		end
+		data.Index = { Discovered = discovered, Claimed = {} }
+		if type(data.Showcase) ~= "table" then
+			data.Showcase = { Mode = "Auto", Uid = "" }
+		end
+	end,
+
+	-- v3 -> v4 (Fase 13A): variante Brilhante em cada artista ("" = normal) e
+	-- descobertas de variantes no Índice. Nenhum artista existente fica com variante.
+	[3] = function(data: RawData)
+		local artists = data.Artists
+		if type(artists) == "table" then
+			for _, value in (artists :: unknown) :: { [string]: unknown } do
+				if type(value) == "table" then
+					local artist = (value :: unknown) :: RawData
+					if type(artist.Variant) ~= "string" then
+						artist.Variant = ""
+					end
+				end
+			end
+		end
+		local index = data.Index
+		if type(index) == "table" then
+			local raw = (index :: unknown) :: RawData
+			if type(raw.Variants) ~= "table" then
+				raw.Variants = {}
+			end
+		end
+	end,
+
+	-- v4 -> v5 (Fase 13B): Cristais e campos do traço. Os artistas ficam SEM traço: só o
+	-- ganham a rodar no Estúdio de Remix.
+	[4] = function(data: RawData)
+		if type(data.Crystals) ~= "number" then
+			data.Crystals = 0
+		end
+		local artists = data.Artists
+		if type(artists) == "table" then
+			for _, value in (artists :: unknown) :: { [string]: unknown } do
+				if type(value) == "table" then
+					local artist = (value :: unknown) :: RawData
+					if type(artist.Trait) ~= "string" or type(artist.TraitTier) ~= "string" then
+						artist.Trait = ""
+						artist.TraitTier = ""
+					end
+				end
+			end
+		end
+	end,
 }
 
 -- Devolve (true) em sucesso, ou (false, motivo) se os dados não puderem ser usados.

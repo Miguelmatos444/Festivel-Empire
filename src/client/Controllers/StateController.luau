@@ -85,6 +85,10 @@ local function applyDelta(delta: StateDelta)
 	if fastCrateAnim ~= nil then
 		nextState.FastCrateAnim = fastCrateAnim
 	end
+	local crystals = delta.Crystals
+	if crystals ~= nil then
+		nextState.Crystals = crystals
+	end
 	local equipmentDelta = delta.Equipment
 	if equipmentDelta then
 		local merged = table.clone(current.Equipment)

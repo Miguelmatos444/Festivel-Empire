@@ -26,6 +26,7 @@ local CRATE_SOUNDS: { [string]: number } = {
 	SkyShatter = 0, -- o céu parte-se
 	Impact = 0, -- aterragem do artista
 	RevealSting = 0, -- revelação final
+	CrateShiny = 0, -- "BRILHANTE!" (variante) e selo "NOVO!"
 }
 
 -- Sons de fallback (ficheiros que vêm com o cliente Roblox) e velocidade de cada um.
@@ -43,6 +44,7 @@ local CRATE_FALLBACKS: { [string]: FallbackSound } = {
 	SkyHit         = { Path = "rbxasset://sounds/collide.wav",              Speed = 0.8,  Volume = 1 },
 	SkyShatter     = { Path = "rbxasset://sounds/collide.wav",              Speed = 0.6,  Volume = 1 },
 	Impact         = { Path = "rbxasset://sounds/collide.wav",              Speed = 0.35, Volume = 1 },
+	CrateShiny     = { Path = "rbxasset://sounds/electronicpingshort.wav",  Speed = 1.5,  Volume = 1 },
 	RevealSting    = { Path = "rbxasset://sounds/electronicpingshort.wav",  Speed = 0.85, Volume = 1 },
 }
 

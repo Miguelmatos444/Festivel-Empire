@@ -27,6 +27,12 @@ local Lod = table.freeze({
 		MaxDistance = 250,
 	}),
 
+	-- Vitrine: o artista roda/flutua até AnimateDistance; o letreiro some além de LabelDistance
+	Showcase = table.freeze({
+		AnimateDistance = 150,
+		LabelDistance = 120,
+	}),
+
 	-- Cinemática de ultra-raro de OUTRO jogador (o dono vê sempre a versão completa):
 	-- versão leve até FullDistance, só feixe de luz + flash até BeamDistance, nada além
 	Cinematic = table.freeze({

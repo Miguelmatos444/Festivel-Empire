@@ -22,9 +22,12 @@ local ArtistController = {}
 
 local changed: Signal.Signal<ArtistsSync> = Signal.new()
 local crateOpened: Signal.Signal<CrateResult> = Signal.new()
+local remixed: Signal.Signal<Types.RemixResult> = Signal.new()
 
 ArtistController.Changed = changed
 ArtistController.CrateOpened = crateOpened
+-- Resultado de um Remix do próprio jogador
+ArtistController.Remixed = remixed
 
 local trove = Trove.new()
 local state: ArtistsSync? = nil
@@ -81,11 +84,24 @@ function ArtistController.SetAutoDelete(upToIndex: number): boolean
 	return fireAction(RemoteDefs.Defs.SetAutoDelete, upToIndex)
 end
 
+-- Estúdio de Remix: paga Cristais e sorteia um novo traço (o servidor valida tudo)
+function ArtistController.Remix(uid: string): boolean
+	return fireAction(RemoteDefs.Defs.RemixTrait, uid)
+end
+
+-- O Auto-Delete também apaga variantes Brilhantes (por defeito não)
+function ArtistController.SetAutoDeleteVariants(enabled: boolean): boolean
+	return fireAction(RemoteDefs.Defs.SetAutoDeleteVariants, enabled)
+end
+
 function ArtistController.Init()
 	trove:Add(NetController.On(RemoteDefs.Defs.ArtistsSync, function(payload: unknown)
 		local sync = payload :: ArtistsSync
 		state = sync
 		changed:Fire(sync)
+	end))
+	trove:Add(NetController.On(RemoteDefs.Defs.RemixResult, function(payload: unknown)
+		remixed:Fire(payload :: Types.RemixResult)
 	end))
 	trove:Add(NetController.On(RemoteDefs.Defs.CrateResult, function(payload: unknown)
 		crateOpened:Fire(payload :: CrateResult)
